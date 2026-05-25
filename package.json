@@ -1,0 +1,10 @@
+{
+  "name": "asteroids",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "rm -rf dist && mkdir dist && cp index.html dist/index.html && cp -R css js _headers dist/",
+    "dev": "npm run build && npx wrangler pages dev dist",
+    "deploy": "npm run build && npx wrangler pages deploy dist --project-name asteroids --branch main"
+  }
+}
