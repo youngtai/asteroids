@@ -86,9 +86,19 @@ function updateShip(player, dt) {
   s.y += s.vy * dt;
   wrap(s);
 
+  // --- Special missile (gamepad left trigger) ---
+  if (player.gpSpecial && player.specialMissiles > 0 && G.now - player.lastSpecial >= SPECIAL_MISSILE_FIRE_RATE) {
+    spawnPlayerMissile(player);
+    player.specialMissiles--;
+    player.lastSpecial = G.now;
+    rumble(player, 0.4, 0.7, 90);
+  }
+
   // --- Firing (keyboard OR gamepad) ---
   const fire = !!(kbFire || player.gpFire);
-  const fireRate = player.hasRapid ? FIRE_RATE * 0.4 : FIRE_RATE;
+  const rapidLevel = player.hasRapid ? Math.max(1, player.rapidLevel || 1) : 0;
+  const rapidMult = rapidLevel ? Math.max(0.2, 0.5 - rapidLevel * 0.1) : 1;
+  const fireRate = FIRE_RATE * rapidMult;
   if (fire && G.now - player.lastFire >= fireRate) {
     playSound('shoot');
     player.lastFire = G.now;
@@ -96,15 +106,18 @@ function updateShip(player, dt) {
     const tipY = s.y + Math.sin(s.angle) * SHIP_SIZE;
     const baseVx = Math.cos(s.angle) * BULLET_SPEED + s.vx * 0.3;
     const baseVy = Math.sin(s.angle) * BULLET_SPEED + s.vy * 0.3;
-    const isLaser = player.hasLaser;
+    const laserLevel = activeLaserLevel(player);
+    const isLaser = laserLevel > 0;
     const isBigger = player.hasBigger;
-    const bulletR = isLaser ? 5 : (isBigger ? 4 : 3);
+    const bulletR = isLaser ? 3 + laserLevel * 2 : (isBigger ? 4 : 3);
     const bColor = player.color;
 
     const makeBullet = (bx, by, bvx, bvy) => ({
       x: bx, y: by, vx: bvx, vy: bvy,
       r: bulletR, life: BULLET_LIFE,
       laser: isLaser,
+      laserLevel,
+      damage: isLaser ? laserLevel : 1,
       owner: player.id,
       color: bColor
     });

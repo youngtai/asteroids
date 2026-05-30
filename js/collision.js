@@ -1,25 +1,71 @@
 /* ============================================================
    COLLISIONS
    ============================================================ */
-function checkCollisions() {
-  function destroyAsteroid(a, ai, owner) {
-    if (owner) owner.score += a.points;
-    const hitColor = a.isPowerup ? POWERUPS[a.puType].color : '#aaa';
-    spawnExplosion(a.x, a.y, hitColor, a.sizeKey === 'LARGE');
-    G.shakeMag = Math.min(G.shakeMag + a.r * 0.15, 12);
-    if (a.isPowerup && a.puType) spawnPowerup(a.x, a.y, a.puType);
-    if (a.hasUfo) spawnUfo(a.x, a.y);
-    const nextSize = a.sizeKey === 'LARGE' ? 'MEDIUM' : a.sizeKey === 'MEDIUM' ? 'SMALL' : null;
-    if (nextSize) {
-      for (let k = 0; k < ASTEROID_SPLIT; k++) {
-        const child = spawnAsteroid(a.x, a.y, nextSize);
-        child.vx += a.vx * 0.3;
-        child.vy += a.vy * 0.3;
-        G.asteroids.push(child);
+function missileShotRadius(m) {
+  return m.hitR || m.r || MISSILE_RADIUS;
+}
+
+function destroyAsteroid(a, owner) {
+  const ai = G.asteroids.indexOf(a);
+  if (ai === -1) return;
+
+  if (owner) owner.score += a.points;
+  const hitColor = a.isPowerup ? POWERUPS[a.puType].color : '#aaa';
+  spawnExplosion(a.x, a.y, hitColor, a.sizeKey === 'LARGE');
+  G.shakeMag = Math.min(G.shakeMag + a.r * 0.15, 12);
+  if (a.isPowerup && a.puType) spawnPowerup(a.x, a.y, a.puType);
+  if (a.hasUfo) spawnUfo(a.x, a.y);
+  const nextSize = a.sizeKey === 'LARGE' ? 'MEDIUM' : a.sizeKey === 'MEDIUM' ? 'SMALL' : null;
+  if (nextSize) {
+    for (let k = 0; k < ASTEROID_SPLIT; k++) {
+      const child = spawnAsteroid(a.x, a.y, nextSize);
+      child.vx += a.vx * 0.3;
+      child.vy += a.vy * 0.3;
+      G.asteroids.push(child);
+    }
+  }
+  G.asteroids.splice(ai, 1);
+}
+
+function explodePlayerMissile(m) {
+  const mi = G.playerMissiles.indexOf(m);
+  if (mi !== -1) G.playerMissiles.splice(mi, 1);
+
+  const owner = G.players.find(p => p.id === (m.owner || 1));
+  spawnExplosion(m.x, m.y, m.color || '#f44', true);
+  G.particles.push({ x: m.x, y: m.y, vx: 0, vy: 0, life: 0.45, maxLife: 0.45, color: '#f44', size: SPECIAL_MISSILE_AOE_RADIUS, type: PT.RING });
+  G.shakeMag = Math.min(G.shakeMag + 18, 22);
+  playSound('explode');
+
+  for (let ai = G.asteroids.length - 1; ai >= 0; ai--) {
+    const a = G.asteroids[ai];
+    if (dist(m.x, m.y, a.x, a.y) <= SPECIAL_MISSILE_AOE_RADIUS + a.r) {
+      destroyAsteroid(a, owner);
+    }
+  }
+
+  for (let ui = G.ufos.length - 1; ui >= 0; ui--) {
+    const uf = G.ufos[ui];
+    if (dist(m.x, m.y, uf.x, uf.y) <= SPECIAL_MISSILE_AOE_RADIUS + uf.r) {
+      uf.hp -= SPECIAL_MISSILE_DAMAGE;
+      if (uf.hp <= 0) {
+        if (owner) owner.score += uf.points;
+        spawnUfoExplosion(uf.x, uf.y);
+        G.ufos.splice(ui, 1);
       }
     }
-    G.asteroids.splice(ai, 1);
   }
+
+  for (let emi = G.missiles.length - 1; emi >= 0; emi--) {
+    const enemy = G.missiles[emi];
+    if (dist(m.x, m.y, enemy.x, enemy.y) <= SPECIAL_MISSILE_AOE_RADIUS + missileShotRadius(enemy)) {
+      spawnExplosion(enemy.x, enemy.y, '#f84', false);
+      G.missiles.splice(emi, 1);
+    }
+  }
+}
+
+function checkCollisions() {
 
   // Bullet vs asteroid - credit score to bullet owner
   for (let bi = G.bullets.length - 1; bi >= 0; bi--) {
@@ -27,9 +73,9 @@ function checkCollisions() {
       const b = G.bullets[bi];
       const a = G.asteroids[ai];
       if (!b || !a) continue;
-      if (dist(b.x, b.y, a.x, a.y) < a.r + (b.laser ? 5 : 3)) {
+      if (wrapDist(b.x, b.y, a.x, a.y) < a.r + b.r) {
         const owner = G.players.find(p => p.id === (b.owner || 1));
-        destroyAsteroid(a, ai, owner);
+        destroyAsteroid(a, owner);
         if (!b.laser) G.bullets.splice(bi, 1);
         playSound('hit');
         break;
@@ -43,9 +89,9 @@ function checkCollisions() {
       const b = G.bullets[bi];
       const uf = G.ufos[ui];
       if (!b || !uf) continue;
-      if (dist(b.x, b.y, uf.x, uf.y) < uf.r + (b.laser ? 5 : 3)) {
+      if (wrapDist(b.x, b.y, uf.x, uf.y) < uf.r + b.r) {
         const owner = G.players.find(p => p.id === (b.owner || 1));
-        uf.hp--;
+        uf.hp -= b.damage || 1;
         spawnParticles(b.x, b.y, 8, owner ? owner.color : '#fff', 160, 0.35);
         G.shakeMag = Math.min(G.shakeMag + 8, 12);
         playSound(uf.hp <= 0 ? 'explode' : 'hit');
@@ -66,7 +112,7 @@ function checkCollisions() {
       const b = G.bullets[bi];
       const m = G.missiles[mi];
       if (!b || !m) continue;
-      if (dist(b.x, b.y, m.x, m.y) < m.r + (b.laser ? 5 : 3)) {
+      if (wrapDist(b.x, b.y, m.x, m.y) < missileShotRadius(m) + b.r) {
         const owner = G.players.find(p => p.id === (b.owner || 1));
         if (owner) owner.score += 25;
         spawnExplosion(m.x, m.y, '#f84', false);
@@ -79,16 +125,50 @@ function checkCollisions() {
     }
   }
 
-  // UFO missile vs asteroid - missiles persist after the impact
+  // UFO missile vs asteroid - both are destroyed on impact
   for (let mi = G.missiles.length - 1; mi >= 0; mi--) {
     for (let ai = G.asteroids.length - 1; ai >= 0; ai--) {
       const m = G.missiles[mi];
       const a = G.asteroids[ai];
       if (!m || !a) continue;
-      if (wrapDist(m.x, m.y, a.x, a.y) < a.r + m.r) {
-        destroyAsteroid(a, ai, null);
+      if (dist(m.x, m.y, a.x, a.y) < a.r + m.r) {
+        destroyAsteroid(a, null);
         spawnExplosion(m.x, m.y, '#f84', false);
+        G.shakeMag = Math.min(G.shakeMag + 4, 10);
         playSound('hit');
+        G.missiles.splice(mi, 1);
+        break;
+      }
+    }
+  }
+
+  // Player special missile direct impacts
+  for (let pi = G.playerMissiles.length - 1; pi >= 0; pi--) {
+    const pm = G.playerMissiles[pi];
+    if (!pm) continue;
+
+    let exploded = false;
+    for (const a of G.asteroids) {
+      if (dist(pm.x, pm.y, a.x, a.y) < a.r + pm.r) {
+        explodePlayerMissile(pm);
+        exploded = true;
+        break;
+      }
+    }
+    if (exploded) continue;
+
+    for (const uf of G.ufos) {
+      if (dist(pm.x, pm.y, uf.x, uf.y) < uf.r + pm.r) {
+        explodePlayerMissile(pm);
+        exploded = true;
+        break;
+      }
+    }
+    if (exploded) continue;
+
+    for (const enemy of G.missiles) {
+      if (dist(pm.x, pm.y, enemy.x, enemy.y) < missileShotRadius(enemy) + pm.r) {
+        explodePlayerMissile(pm);
         break;
       }
     }
@@ -213,9 +293,4 @@ function checkCollisions() {
     return;
   }
 
-  // Check wave clear
-  if (G.asteroids.length === 0 && G.ufos.length === 0 && G.state === 'playing') {
-    G.wave++;
-    spawnWave();
-  }
 }

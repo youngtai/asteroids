@@ -20,20 +20,72 @@ function spawnAsteroid(x, y, sizeKey) {
   };
 }
 
-function spawnWave() {
-  const count = WAVE_BASE + (G.wave - 1) * WAVE_INCREMENT;
-  for (let i = 0; i < count; i++) {
-    let x, y;
-    const ships = G.players.filter(p => p.ship).map(p => p.ship);
-    if (ships.length > 0) {
-      let attempts = 0;
-      do {
-        x = rand(0, G.W); y = rand(0, G.H);
-        attempts++;
-      } while (ships.some(s => dist(x, y, s.x, s.y) < 200) && attempts < 20);
+function targetLargeAsteroids() {
+  const areaTarget = Math.floor((G.W * G.H) / ASTEROID_AREA_PER_LARGE);
+  const scoreBonus = Math.floor(totalPlayerScore() / ASTEROID_SCORE_STEP);
+  return Math.max(
+    ASTEROID_MIN_LARGE,
+    Math.min(ASTEROID_MAX_LARGE, areaTarget + scoreBonus)
+  );
+}
+
+function currentLargeAsteroids() {
+  return G.asteroids.filter(a => a.sizeKey === 'LARGE').length;
+}
+
+function randomAsteroidSpawnPoint() {
+  let x = 0, y = 0;
+  const ships = G.players.filter(p => p.ship).map(p => p.ship);
+  let attempts = 0;
+  do {
+    const side = randInt(0, 3);
+    const margin = ASTEROID.LARGE.radius + 12;
+    if (side === 0) {
+      x = rand(0, G.W);
+      y = -margin;
+    } else if (side === 1) {
+      x = G.W + margin;
+      y = rand(0, G.H);
+    } else if (side === 2) {
+      x = rand(0, G.W);
+      y = G.H + margin;
     } else {
-      x = rand(0, G.W); y = rand(0, G.H);
+      x = -margin;
+      y = rand(0, G.H);
     }
-    G.asteroids.push(spawnAsteroid(x, y, 'LARGE'));
-  }
+    attempts++;
+  } while (ships.some(s => dist(x, y, s.x, s.y) < ASTEROID_SAFE_SPAWN_RADIUS) && attempts < 30);
+  return { x, y };
+}
+
+function aimAsteroidInward(a) {
+  const targetX = G.W / 2 + rand(-G.W * 0.25, G.W * 0.25);
+  const targetY = G.H / 2 + rand(-G.H * 0.25, G.H * 0.25);
+  const angle = Math.atan2(targetY - a.y, targetX - a.x) + rand(-0.35, 0.35);
+  const speed = Math.hypot(a.vx, a.vy) || rand(ASTEROID_SPEED_LO, ASTEROID_SPEED_HI);
+  a.vx = Math.cos(angle) * speed;
+  a.vy = Math.sin(angle) * speed;
+}
+
+function spawnLargeAsteroid() {
+  const p = randomAsteroidSpawnPoint();
+  const a = spawnAsteroid(p.x, p.y, 'LARGE');
+  aimAsteroidInward(a);
+  G.asteroids.push(a);
+}
+
+function fillInitialAsteroidField() {
+  const count = targetLargeAsteroids();
+  for (let i = 0; i < count; i++) spawnLargeAsteroid();
+  G.nextAsteroidSpawn = G.now + ASTEROID_RESPAWN_INTERVAL;
+}
+
+function maybeSpawnAsteroids() {
+  const target = targetLargeAsteroids();
+  G.level = Math.max(1, 1 + Math.floor(totalPlayerScore() / ASTEROID_SCORE_STEP));
+  if (!G.nextAsteroidSpawn) G.nextAsteroidSpawn = G.now + ASTEROID_RESPAWN_INTERVAL;
+  if (currentLargeAsteroids() >= target || G.now < G.nextAsteroidSpawn) return;
+
+  spawnLargeAsteroid();
+  G.nextAsteroidSpawn = G.now + ASTEROID_RESPAWN_INTERVAL;
 }

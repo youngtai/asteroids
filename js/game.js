@@ -16,6 +16,7 @@ function gameLoop(timestamp) {
       // Clear gamepad flags each frame (applyGamepadToPlayer sets them if controller is active)
       player.gpThrust = false;
       player.gpFire = false;
+      player.gpSpecial = false;
       player.gpLeft = false;
       player.gpRight = false;
       player.gpUp = false;
@@ -24,8 +25,10 @@ function gameLoop(timestamp) {
       updateShip(player, G.dt);
     }
     updateBullets(G.dt);
+    updatePlayerMissiles(G.dt);
     updateMissiles(G.dt);
     updateAsteroids(G.dt);
+    maybeSpawnAsteroids();
     updateUfos(G.dt);
     updateParticles(G.dt);
     updatePowerups(G.dt);
@@ -74,6 +77,7 @@ function gameLoop(timestamp) {
   for (const a of G.asteroids) drawAsteroid(a);
   for (const u of G.ufos) drawUfo(u, t);
   for (const m of G.missiles) drawMissile(m);
+  drawPlayerMissiles();
   drawBullets();
   drawPowerups(t);
   drawParticles();
@@ -189,13 +193,15 @@ function onPointerStart(e) {
    ============================================================ */
 function resetGame() {
   G.bullets = [];
+  G.playerMissiles = [];
   G.missiles = [];
   G.asteroids = [];
   G.particles = [];
   G.powerups = [];
   G.ufos = [];
   G.nextBossSpawn = 0;
-  G.wave = 1;
+  G.level = 1;
+  G.nextAsteroidSpawn = 0;
   G.shakeMag = 0;
   G.shakeX = 0;
   G.shakeY = 0;
@@ -209,7 +215,7 @@ function resetGame() {
   }
 
   scheduleNextBossUfo();
-  spawnWave();
+  fillInitialAsteroidField();
 }
 
 function restartGame() {

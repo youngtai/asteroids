@@ -65,21 +65,26 @@ function drawShip(player, t) {
 
   // Thrust flame - use player color accent
   if (s.thrusting) {
-    G.ctx.strokeStyle = accentColor || '#f84';
-    G.ctx.lineWidth = 2;
-    const flicker = rand(0.4, 1.2) * SHIP_SIZE * 0.8;
+    const flicker = rand(0.5, 1.0) * SHIP_SIZE * 0.55;
+    G.ctx.fillStyle = accentColor || '#f84';
+    G.ctx.globalAlpha = 0.75;
     G.ctx.beginPath();
-    G.ctx.moveTo(-SHIP_SIZE * 0.5, -SHIP_SIZE * 0.25);
-    G.ctx.lineTo(-SHIP_SIZE * 0.5 - flicker, 0);
-    G.ctx.lineTo(-SHIP_SIZE * 0.5, SHIP_SIZE * 0.25);
-    G.ctx.stroke();
-    G.ctx.strokeStyle = '#ff0';
-    const flicker2 = rand(0.2, 0.6) * SHIP_SIZE * 0.6;
+    G.ctx.moveTo(-SHIP_SIZE * 0.58, -SHIP_SIZE * 0.18);
+    G.ctx.lineTo(-SHIP_SIZE * 0.58 - flicker, 0);
+    G.ctx.lineTo(-SHIP_SIZE * 0.58, SHIP_SIZE * 0.18);
+    G.ctx.closePath();
+    G.ctx.fill();
+
+    G.ctx.fillStyle = '#ffb347';
+    G.ctx.globalAlpha = 0.9;
+    const core = rand(0.35, 0.7) * SHIP_SIZE * 0.45;
     G.ctx.beginPath();
-    G.ctx.moveTo(-SHIP_SIZE * 0.5, -SHIP_SIZE * 0.12);
-    G.ctx.lineTo(-SHIP_SIZE * 0.5 - flicker2, 0);
-    G.ctx.lineTo(-SHIP_SIZE * 0.5, SHIP_SIZE * 0.12);
-    G.ctx.stroke();
+    G.ctx.moveTo(-SHIP_SIZE * 0.62, -SHIP_SIZE * 0.07);
+    G.ctx.lineTo(-SHIP_SIZE * 0.62 - core, 0);
+    G.ctx.lineTo(-SHIP_SIZE * 0.62, SHIP_SIZE * 0.07);
+    G.ctx.closePath();
+    G.ctx.fill();
+    G.ctx.globalAlpha = 1;
   }
 
   G.ctx.restore();
@@ -116,15 +121,18 @@ function drawAsteroid(a) {
 // Pre-rendered bullet sprites (glow effect cached)
 const bulletSprites = {};
 
-function getBulletSprite(color, laser) {
-  const key = color + ':' + (laser ? 'L' : 'S');
+function getBulletSprite(color, laser, laserLevel) {
+  const level = laser ? Math.max(1, Math.min(LASER_MAX_LEVEL, laserLevel || 1)) : 0;
+  const key = color + ':' + (laser ? 'L' + level : 'S');
   if (bulletSprites[key]) return bulletSprites[key];
   const c = document.createElement('canvas');
-  const size = laser ? 24 : 16;
-  c.width = c.height = size;
+  const size = laser ? 24 + level * 10 : 16;
+  c.width = size;
+  c.height = laser ? 18 + level * 5 : size;
   const ctx = c.getContext('2d');
-  const half = size / 2;
-  const grad = ctx.createRadialGradient(half, half, 0, half, half, half);
+  const halfX = c.width / 2;
+  const halfY = c.height / 2;
+  const grad = ctx.createRadialGradient(halfX, halfY, 0, halfX, halfY, Math.max(c.width, c.height) / 2);
   grad.addColorStop(0, '#fff');
   grad.addColorStop(0.2, color);
   const rgb = hexToRgb(color);
@@ -134,17 +142,17 @@ function getBulletSprite(color, laser) {
     // Horizontal beam pointing right (will be rotated when drawn)
     ctx.save();
     // Glow halo (using the gradient)
-    ctx.fillRect(0, 0, size, size);
+    ctx.fillRect(0, 0, c.width, c.height);
     // White core
     ctx.fillStyle = '#fff';
-    ctx.fillRect(0, half - 2, size, 4);
+    ctx.fillRect(0, halfY - (1 + level * 0.6), c.width, 2 + level * 1.2);
     // Colored beam
     ctx.fillStyle = color;
-    ctx.fillRect(0, half - 4, size, 8);
+    ctx.fillRect(0, halfY - (3 + level), c.width, 6 + level * 2);
     ctx.restore();
   } else {
     ctx.beginPath();
-    ctx.arc(half, half, half, 0, Math.PI * 2);
+    ctx.arc(halfX, halfY, halfX, 0, Math.PI * 2);
     ctx.fill();
   }
   bulletSprites[key] = c;
@@ -155,7 +163,7 @@ function drawBullets() {
   const ctx = G.ctx;
   for (const b of G.bullets) {
     const col = b.color || '#ff4';
-    const sprite = getBulletSprite(col, b.laser);
+    const sprite = getBulletSprite(col, b.laser, b.laserLevel);
     if (b.laser) {
       // Rotate laser to match bullet direction
       const angle = Math.atan2(b.vy, b.vx);
@@ -167,6 +175,37 @@ function drawBullets() {
     } else {
       ctx.drawImage(sprite, b.x - sprite.width / 2, b.y - sprite.height / 2);
     }
+  }
+}
+
+function drawPlayerMissiles() {
+  const ctx = G.ctx;
+  for (const m of G.playerMissiles) {
+    for (const tr of m.trail) {
+      const alpha = tr.life / 0.45 * 0.45;
+      ctx.fillStyle = `rgba(255,80,60,${alpha})`;
+      ctx.beginPath();
+      ctx.arc(tr.x, tr.y, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.save();
+    ctx.translate(m.x, m.y);
+    ctx.rotate(m.angle);
+    ctx.strokeStyle = m.color || '#f44';
+    ctx.fillStyle = '#fff';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(16, 0);
+    ctx.lineTo(-10, -7);
+    ctx.lineTo(-6, 0);
+    ctx.lineTo(-10, 7);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(4, 0, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 }
 
@@ -235,6 +274,30 @@ function drawParticles() {
     G.ctx.fillStyle = `rgba(${rgb},${alpha * 0.7})`;
     G.ctx.fillRect(cx - half * 2 * cos + sin - 2, cy - half * 2 * sin - cos - 2, half * 4 + 4, 4);
   }
+
+  // 4. Thruster streaks: narrow exhaust lines only, no radial glow.
+  G.ctx.lineCap = 'round';
+  for (let i = 0; i < G.particles.length; i++) {
+    const p = G.particles[i];
+    if (p.type !== PT.THRUST) continue;
+    const alpha = p.life / p.maxLife;
+    if (alpha <= 0) continue;
+    const len = p.size * (1.1 + alpha);
+    const width = Math.max(1, p.size * 0.18);
+    const angle = p.rot || 0;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const rgb = hexToRgb(p.color);
+    G.ctx.globalAlpha = alpha * 0.8;
+    G.ctx.strokeStyle = `rgba(${rgb},${alpha})`;
+    G.ctx.lineWidth = width;
+    G.ctx.beginPath();
+    G.ctx.moveTo(p.x - cos * len * 0.35, p.y - sin * len * 0.35);
+    G.ctx.lineTo(p.x - cos * len, p.y - sin * len);
+    G.ctx.stroke();
+  }
+  G.ctx.lineCap = 'butt';
+  G.ctx.globalAlpha = 1;
 
   G.ctx.restore();
 }
@@ -305,7 +368,7 @@ function drawPowerups(t) {
 }
 
 function updateHUD() {
-  document.getElementById('hud-wave').textContent = G.wave;
+  document.getElementById('hud-wave').textContent = G.level || 1;
 
   const pauseEl = document.getElementById('hud-pause');
   pauseEl.style.opacity = G.state === 'paused' ? 1 : 0;
@@ -354,16 +417,21 @@ function updateHUD() {
     // Power-ups display
     const puContainer = document.getElementById(`hud-p${pid}-powerups`);
     let puHTML = '';
-    const addPill = (type) => {
+    const addPill = (type, suffix) => {
       const cfg = POWERUPS[type];
       puHTML += `<span style="color:${cfg.color};border:1px solid ${cfg.color};padding:1px 5px;border-radius:3px;font-size:10px;line-height:1.4">${cfg.label} ${cfg.desc}`;
       if (type === 'SHIELD') puHTML += ` x${player.shieldHits}`;
+      if (suffix) puHTML += suffix;
       puHTML += `</span> `;
     };
-    if (player.hasRapid) addPill('RAPID');
-    if (player.hasLaser) addPill('LASER');
+    if (player.hasRapid) addPill('RAPID', ` x${Math.max(1, player.rapidLevel || 1)}`);
+    if (player.hasLaser) {
+      const laserLevel = activeLaserLevel(player);
+      addPill('LASER', laserLevel > 1 ? ` x${laserLevel}` : '');
+    }
     if (player.hasBigger) addPill('BIGGER');
-    if (player.hasSlow) addPill('SLOW');
+    if (player.specialMissiles > 0) addPill('MISSILE', ` x${player.specialMissiles}`);
+    if (hasActiveSlow(player)) addPill('SLOW');
     if (player.hasShield && player.shieldHits > 0) addPill('SHIELD');
     for (const m of player.weaponModes) {
       const key = m.toUpperCase();

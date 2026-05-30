@@ -40,7 +40,7 @@ function prewarmSprites() {
   }
 }
 
-const PT = { GLOW: 0, SPARK: 1, RING: 2, DEBRIS: 3, SMOKE: 4 };
+const PT = { GLOW: 0, SPARK: 1, RING: 2, DEBRIS: 3, SMOKE: 4, THRUST: 5 };
 
 function spawnParticles(x, y, count, color, speed, life) {
   for (let i = 0; i < count; i++) {
@@ -122,14 +122,19 @@ function spawnPickupEffect(x, y, color) {
 }
 
 function spawnThrustTrail(x, y, angle) {
-  const spread = 0.5;
-  const spd = rand(30, 80);
+  const spd = rand(70, 135);
+  const side = rand(-2.2, 2.2);
+  const back = rand(3, 12);
+  const px = x - Math.cos(angle) * back - Math.sin(angle) * side;
+  const py = y - Math.sin(angle) * back + Math.cos(angle) * side;
   G.particles.push({
-    x: x + rand(-3, 3), y: y + rand(-3, 3),
-    vx: -Math.cos(angle) * spd + rand(-20, 20),
-    vy: -Math.sin(angle) * spd + rand(-20, 20),
-    life: 0.25, maxLife: 0.25,
+    x: px, y: py,
+    vx: -Math.cos(angle) * spd + rand(-8, 8),
+    vy: -Math.sin(angle) * spd + rand(-8, 8),
+    life: 0.16, maxLife: 0.16,
     color: rand() > 0.5 ? '#f84' : '#ff0',
-    size: rand(8, 16), type: PT.GLOW
+    size: rand(7, 12),
+    type: PT.THRUST,
+    rot: angle + rand(-0.08, 0.08)
   });
 }

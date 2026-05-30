@@ -20,8 +20,18 @@ function wrap(obj) {
   if (obj.y > G.H + obj.r) obj.y -= G.H + obj.r * 2;
 }
 
+function hasActiveSlow(player) {
+  return player.hasSlow && G.now < player.slowEnd;
+}
+
 function anyPlayerHasSlow() {
-  return G.players.some(p => p.alive && p.hasSlow);
+  return G.players.some(p => p.alive && hasActiveSlow(p));
+}
+
+function activeLaserLevel(player) {
+  if (!player.hasLaser) return 0;
+  const boostStacks = G.now < player.laserBoostEnd ? player.laserBoostStacks : 0;
+  return Math.min(LASER_MAX_LEVEL, 1 + boostStacks);
 }
 
 function totalPlayerScore() {

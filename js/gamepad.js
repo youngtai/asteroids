@@ -60,15 +60,20 @@ function applyGamepadToPlayer(player) {
   // --- Thrust: B / Circle (1) ---
   player.gpThrust = !!btns[1]?.pressed;
 
-  // --- Fire: A/Cross (0) OR triggers OR shoulder buttons ---
+  // --- Fire: A/Cross (0) OR right trigger OR shoulder buttons ---
   // On Moga: RT is button 9 (not 7), LT is button 7
   // On Xbox: LT is button 6, RT is button 7
   // On PS: L2 is button 6, R2 is button 7
-  const triggerBtns = type === 'moga' ? [7, 9] : [6, 7];
+  const fireTriggerBtns = type === 'moga' ? [9] : [7];
+  const specialTriggerBtn = type === 'moga' ? 7 : 6;
   const shoulderBtns = type === 'moga' ? [5] : [4, 5];
   player.gpFire = !!(btns[0]?.pressed ||
     shoulderBtns.some(b => btns[b]?.pressed) ||
-    triggerBtns.some(b => btns[b]?.value > 0.1 || btns[b]?.pressed));
+    fireTriggerBtns.some(b => btns[b]?.value > 0.1 || btns[b]?.pressed));
+
+  const specialDown = !!(btns[specialTriggerBtn]?.value > 0.35 || btns[specialTriggerBtn]?.pressed);
+  player.gpSpecial = specialDown && !player._gpSpecialDown;
+  player._gpSpecialDown = specialDown;
 
   // --- D-pad → keyboard fallback ---
   player.gpUp = !!btns[12]?.pressed;

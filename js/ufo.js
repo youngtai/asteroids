@@ -88,6 +88,8 @@ function spawnMissile(u, target) {
       vy: Math.sin(a) * MISSILE_SPEED,
       angle: a,
       r: MISSILE_RADIUS,
+      hitR: MISSILE_HIT_RADIUS,
+      life: MISSILE_LIFE,
       targetId: target.id,
       trail: []
     });
@@ -108,14 +110,17 @@ function updateUfos(dt) {
     u.targetId = target ? target.id : null;
 
     if (target && target.ship) {
-      const s = target.ship;
-      let dx = s.x - u.x;
-      let dy = s.y - u.y;
-      if (Math.abs(dx) > G.W / 2) dx -= Math.sign(dx) * G.W;
-      if (Math.abs(dy) > G.H / 2) dy -= Math.sign(dy) * G.H;
+      const moveTargetX = u.isBoss ? G.W / 2 : target.ship.x;
+      const moveTargetY = u.isBoss ? G.H / 2 : target.ship.y;
+      let dx = moveTargetX - u.x;
+      let dy = moveTargetY - u.y;
+      if (!u.isBoss) {
+        if (Math.abs(dx) > G.W / 2) dx -= Math.sign(dx) * G.W;
+        if (Math.abs(dy) > G.H / 2) dy -= Math.sign(dy) * G.H;
+      }
       const d = Math.hypot(dx, dy) || 1;
       const baseSpeed = u.isBoss ? BOSS_UFO_SPEED : UFO_SPEED;
-      const desiredSpeed = d > UFO_FOLLOW_DISTANCE ? baseSpeed : baseSpeed * 0.35;
+      const desiredSpeed = u.isBoss || d > UFO_FOLLOW_DISTANCE ? baseSpeed : baseSpeed * 0.35;
       const desiredVx = (dx / d) * desiredSpeed;
       const desiredVy = (dy / d) * desiredSpeed;
       const steer = u.isBoss ? 0.75 : (G.now < u.dodgeEnd ? 0.9 : 1.8);
@@ -151,6 +156,7 @@ function updateMissiles(dt) {
   const slowMult = anyPlayerHasSlow() ? 0.4 : 1;
   for (let i = G.missiles.length - 1; i >= 0; i--) {
     const m = G.missiles[i];
+    if (!Number.isFinite(m.life)) m.life = MISSILE_LIFE;
     const target = G.players.find(p => p.id === m.targetId && p.alive && p.ship) || closestAlivePlayer(m.x, m.y);
     if (target && target.ship) {
       const s = target.ship;
@@ -172,7 +178,7 @@ function updateMissiles(dt) {
     m.vy = Math.sin(m.angle) * speed;
     m.x += m.vx * dt * slowMult;
     m.y += m.vy * dt * slowMult;
-    wrap(m);
+    m.life -= dt;
 
     if (Math.random() < 0.7) m.trail.push({ x: m.x, y: m.y, life: 0.35 });
     for (let j = m.trail.length - 1; j >= 0; j--) {
@@ -180,6 +186,12 @@ function updateMissiles(dt) {
       if (m.trail[j].life <= 0) m.trail.splice(j, 1);
     }
 
+    const offscreen = m.x < -m.r || m.x > G.W + m.r || m.y < -m.r || m.y > G.H + m.r;
+    if (m.life <= 0 || offscreen) {
+      spawnExplosion(m.x, m.y, '#f84', false);
+      G.shakeMag = Math.min(G.shakeMag + 4, 10);
+      G.missiles.splice(i, 1);
+    }
   }
 }
 

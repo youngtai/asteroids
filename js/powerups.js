@@ -19,6 +19,7 @@ function applyPowerup(type, player) {
   switch (type) {
     case 'RAPID':
       player.hasRapid = true;
+      player.rapidLevel = Math.min(RAPID_MAX_LEVEL, (player.rapidLevel || 0) + 1);
       break;
     case 'DUAL':
       if (!has(player.weaponModes, 'dual')) player.weaponModes.push('dual');
@@ -27,7 +28,15 @@ function applyPowerup(type, player) {
       if (!has(player.weaponModes, 'spread')) player.weaponModes.push('spread');
       break;
     case 'LASER':
+      if (player.hasLaser) {
+        const activeStacks = G.now < player.laserBoostEnd ? player.laserBoostStacks : 0;
+        player.laserBoostStacks = Math.min(LASER_MAX_LEVEL - 1, activeStacks + 1);
+        player.laserBoostEnd = G.now + LASER_STACK_DURATION;
+      }
       player.hasLaser = true;
+      break;
+    case 'MISSILE':
+      player.specialMissiles++;
       break;
     case 'SHIELD':
       player.hasShield = true;
@@ -40,6 +49,7 @@ function applyPowerup(type, player) {
       break;
     case 'SLOW':
       player.hasSlow = true;
+      player.slowEnd = G.now + SLOW_TIME_DURATION;
       break;
   }
   player.score += 25;

@@ -7,18 +7,30 @@ const SHIP_THRUST        = 380;
 const SHIP_FRICTION      = 0.005;
 const MAX_SPEED          = 420;
 const FIRE_RATE          = 0.18;
+const RAPID_MAX_LEVEL    = 3;
 const BULLET_SPEED       = 550;
 const BULLET_LIFE        = 1.8;
 const MISSILE_SPEED      = 320;
 const MISSILE_TURN_RATE  = 2.6;
-const MISSILE_LIFE       = 6.5;
+const MISSILE_LIFE       = 10;
 const MISSILE_RADIUS     = 7;
+const MISSILE_HIT_RADIUS = 12;
+const SPECIAL_MISSILE_SPEED = 430;
+const SPECIAL_MISSILE_RADIUS = 10;
+const SPECIAL_MISSILE_LIFE = 4.0;
+const SPECIAL_MISSILE_DAMAGE = 250;
+const SPECIAL_MISSILE_AOE_RADIUS = 115;
+const SPECIAL_MISSILE_FIRE_RATE = 0.4;
 const INVULNERABLE_TIME  = 3.0;
 const ASTEROID_SPEED_LO  = 40;
 const ASTEROID_SPEED_HI  = 120;
 const ASTEROID_SPLIT     = 2;
-const WAVE_BASE          = 4;
-const WAVE_INCREMENT     = 1;
+const ASTEROID_AREA_PER_LARGE = 260000;
+const ASTEROID_MIN_LARGE = 3;
+const ASTEROID_MAX_LARGE = 10;
+const ASTEROID_SCORE_STEP = 5000;
+const ASTEROID_RESPAWN_INTERVAL = 2.5;
+const ASTEROID_SAFE_SPAWN_RADIUS = 220;
 const PARTICLE_LIFE      = 0.8;
 const SCREEN_SHAKE_DECAY = 6;
 const STAR_COUNT         = 80;
@@ -45,7 +57,7 @@ const UFO_MAX_HITS   = 50;
 const UFO_FIRE_RATE  = 2.2;
 const UFO_FOLLOW_DISTANCE = 220;
 const BOSS_UFO_RADIUS = 58;
-const BOSS_UFO_SPEED = 55;
+const BOSS_UFO_SPEED = 70;
 const BOSS_UFO_POINTS = 5000;
 const BOSS_UFO_HITS = 500;
 const BOSS_UFO_FIRE_RATE = 1.8;
@@ -56,7 +68,11 @@ const BOSS_UFO_SPAWN_MAX = 90;
 
 const POWERUP_CHANCE   = 0.30;
 const POWERUP_RADIUS   = 12;
+const POWERUP_PICKUP_RADIUS_MULT = 5;
 const POWERUP_LIFETIME = 30;
+const SLOW_TIME_DURATION = 20;
+const LASER_MAX_LEVEL = 3;
+const LASER_STACK_DURATION = 20;
 const MAX_VISIBLE_POWERUPS = 8;
 
 const POWERUPS = {
@@ -64,6 +80,7 @@ const POWERUPS = {
   DUAL:   { color: '#4ff', label: 'D', desc: 'Dual Shot' },
   SPREAD: { color: '#f4f', label: 'S', desc: 'Triple Spread' },
   LASER:  { color: '#4f4', label: 'L', desc: 'Laser' },
+  MISSILE:{ color: '#f44', label: 'M', desc: 'AOE Missile' },
   SHIELD: { color: '#48f', label: 'O', desc: 'Shield' },
   BIGGER: { color: '#fa0', label: 'X', desc: 'Bigger Bullets' },
   SLOW:   { color: '#8f8', label: 'T', desc: 'Slow Time' },

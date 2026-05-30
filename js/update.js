@@ -32,7 +32,7 @@ function updatePowerups(dt) {
     let picked = false;
     for (const player of G.players) {
       if (player.alive && player.ship) {
-        if (dist(player.ship.x, player.ship.y, pu.x, pu.y) < SHIP_SIZE + POWERUP_RADIUS) {
+        if (dist(player.ship.x, player.ship.y, pu.x, pu.y) < SHIP_SIZE + POWERUP_RADIUS * POWERUP_PICKUP_RADIUS_MULT) {
           applyPowerup(pu.type, player);
           spawnPickupEffect(pu.x, pu.y, POWERUPS[pu.type].color);
           G.powerups.splice(i, 1);
