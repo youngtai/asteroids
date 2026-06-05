@@ -1,6 +1,7 @@
 function updateBullets(dt) {
   for (let i = G.bullets.length - 1; i >= 0; i--) {
     const b = G.bullets[i];
+    applyBlackHoleForces(b, dt, { maxSpeed: BULLET_SPEED * 1.35 });
     b.x += b.vx * dt;
     b.y += b.vy * dt;
     b.life -= dt;
@@ -33,6 +34,7 @@ function spawnPlayerMissile(player) {
 function updatePlayerMissiles(dt) {
   for (let i = G.playerMissiles.length - 1; i >= 0; i--) {
     const m = G.playerMissiles[i];
+    applyBlackHoleForces(m, dt, { maxSpeed: SPECIAL_MISSILE_SPEED * 1.4 });
     m.x += m.vx * dt;
     m.y += m.vy * dt;
     m.angle = Math.atan2(m.vy, m.vx);

@@ -30,9 +30,12 @@ function gameLoop(timestamp) {
     updateAsteroids(G.dt);
     maybeSpawnAsteroids();
     updateUfos(G.dt);
+    updateBlackHoles(G.dt);
     updateParticles(G.dt);
     updatePowerups(G.dt);
     checkCollisions();
+  } else if (G.state === 'roundComplete' && G.nextRoundAt && G.now >= G.nextRoundAt) {
+    startNextRound();
   }
 
   // Gamepad Start button → menu actions (works in any state, with debounce)
@@ -46,6 +49,8 @@ function gameLoop(timestamp) {
       startGame();
     } else if (G.state === 'gameover') {
       restartGame();
+    } else if (G.state === 'roundComplete') {
+      startNextRound();
     } else if (G.state === 'playing') {
       G.state = 'paused';
       G._pauseTime = G.now;
@@ -76,6 +81,7 @@ function gameLoop(timestamp) {
 
   for (const a of G.asteroids) drawAsteroid(a);
   for (const u of G.ufos) drawUfo(u, t);
+  for (const bh of G.blackHoles) drawBlackHole(bh, t);
   for (const m of G.missiles) drawMissile(m);
   drawPlayerMissiles();
   drawBullets();
@@ -120,6 +126,11 @@ function onKeyDown(e) {
   // Restart from game over
   if (!startedFromTitle && G.state === 'gameover' && (e.code === 'KeyR' || e.key === 'Enter' || e.key === ' ')) {
     restartGame();
+    return;
+  }
+
+  if (!startedFromTitle && G.state === 'roundComplete' && (e.code === 'Enter' || e.code === 'Space')) {
+    startNextRound();
     return;
   }
 
@@ -175,9 +186,10 @@ function startGame() {
   document.getElementById('gameover-overlay').classList.add('hidden');
   document.getElementById('start-overlay').classList.add('hidden');
   document.getElementById('paused-overlay').classList.add('hidden');
+  document.getElementById('round-overlay').classList.add('hidden');
+  G.now = performance.now() / 1000;
   resetGame();
   G.state = 'playing';
-  G.now = performance.now() / 1000;
   updateHUD();
 }
 
@@ -199,7 +211,13 @@ function resetGame() {
   G.particles = [];
   G.powerups = [];
   G.ufos = [];
+  G.blackHoles = [];
   G.nextBossSpawn = 0;
+  G.round = 1;
+  G.bossStage = 0;
+  G.bossesDefeated = 0;
+  G.roundCompleteAt = 0;
+  G.nextRoundAt = 0;
   G.level = 1;
   G.nextAsteroidSpawn = 0;
   G.shakeMag = 0;
@@ -214,7 +232,7 @@ function resetGame() {
     respawnShip(player);
   }
 
-  scheduleNextBossUfo();
+  beginRound(1);
   fillInitialAsteroidField();
 }
 
@@ -222,10 +240,11 @@ function restartGame() {
   document.getElementById('gameover-overlay').classList.add('hidden');
   document.getElementById('start-overlay').classList.add('hidden');
   document.getElementById('paused-overlay').classList.add('hidden');
+  document.getElementById('round-overlay').classList.add('hidden');
   G._lastStart = 0;
+  G.now = performance.now() / 1000;
   resetGame();
   G.state = 'playing';
-  G.now = performance.now() / 1000;
   updateHUD();
 }
 
@@ -271,6 +290,14 @@ function init() {
       if (G.state === 'start') startGame();
     });
   });
+
+  const startButton = document.getElementById('start-button');
+  if (startButton) {
+    startButton.addEventListener('click', () => {
+      initAudio();
+      if (G.state === 'start') startGame();
+    });
+  }
 
   // Gamepad connection events
   window.addEventListener('gamepadconnected', e => updateGpStatus());

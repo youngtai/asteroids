@@ -22,13 +22,107 @@ function spawnUfo(x, y) {
   return true;
 }
 
-function scheduleNextBossUfo() {
-  G.nextBossSpawn = G.now + rand(BOSS_UFO_SPAWN_MIN, BOSS_UFO_SPAWN_MAX);
+function bossStageCount() {
+  return BOSS_UFO_STAGES.length;
 }
 
-function spawnBossUfo() {
-  if (G.ufos.some(u => u.isBoss)) return false;
+function currentBossStageConfig() {
+  return BOSS_UFO_STAGES[Math.min(G.bossStage || 0, bossStageCount() - 1)];
+}
 
+function activeBossCount() {
+  return G.ufos.filter(u => u.isBoss).length;
+}
+
+function bossHpForRound(baseHp) {
+  return Math.round(baseHp * (1 + roundDifficultyTier() * ROUND_BOSS_HP_SCALE));
+}
+
+function bossMissileCountForRound(baseCount) {
+  const bonus = Math.min(
+    ROUND_BOSS_MAX_MISSILE_BONUS,
+    Math.floor(roundDifficultyTier() / ROUND_BOSS_MISSILE_BONUS_EVERY)
+  );
+  return baseCount + bonus;
+}
+
+function bossSpeedForRound() {
+  const mult = Math.min(
+    ROUND_BOSS_MAX_SPEED_MULT,
+    1 + roundDifficultyTier() * ROUND_BOSS_SPEED_SCALE
+  );
+  return BOSS_UFO_SPEED * mult;
+}
+
+function bossMissileSpread(count) {
+  if (count <= 1) return 0;
+  return BOSS_UFO_MISSILE_TOTAL_SPREAD / (count - 1);
+}
+
+function beginRound(roundNumber) {
+  G.round = roundNumber;
+  G.bossStage = 0;
+  G.bossesDefeated = 0;
+  G.roundCompleteAt = 0;
+  G.nextRoundAt = 0;
+  G.nextBossSpawn = G.now + BOSS_UFO_FIRST_SPAWN_DELAY;
+}
+
+function clearArenaForNextRound() {
+  G.bullets = [];
+  G.playerMissiles = [];
+  G.missiles = [];
+  G.asteroids = [];
+  G.powerups = [];
+  G.ufos = [];
+  G.blackHoles = [];
+  G.nextAsteroidSpawn = 0;
+}
+
+function completeRound() {
+  G.state = 'roundComplete';
+  G.roundCompleteAt = G.now;
+  G.nextRoundAt = G.now + ROUND_INTERMISSION_TIME;
+  G.nextBossSpawn = 0;
+  document.getElementById('round-overlay').classList.remove('hidden');
+  document.getElementById('paused-overlay').classList.add('hidden');
+  updateHUD();
+}
+
+function startNextRound() {
+  document.getElementById('round-overlay').classList.add('hidden');
+  clearArenaForNextRound();
+  beginRound((G.round || 1) + 1);
+  for (const player of G.players) respawnShip(player);
+  fillInitialAsteroidField();
+  G.state = 'playing';
+  updateHUD();
+}
+
+function onBossDefeated(u) {
+  if (!u || !u.isBoss) return;
+  G.bossesDefeated = Math.min((G.bossesDefeated || 0) + 1, bossStageCount());
+
+  if (G.bossesDefeated >= bossStageCount()) {
+    completeRound();
+    return;
+  }
+
+  if ((G.bossStage || 0) < bossStageCount() && activeBossCount() < BOSS_UFO_MAX_ACTIVE) {
+    G.nextBossSpawn = Math.min(G.nextBossSpawn || Infinity, G.now + BOSS_UFO_NEXT_SPAWN_DELAY);
+  }
+}
+
+function destroyUfo(u, owner, knownIndex) {
+  const ui = Number.isInteger(knownIndex) ? knownIndex : G.ufos.indexOf(u);
+  if (ui === -1) return;
+  if (owner) owner.score += u.points;
+  spawnUfoExplosion(u.x, u.y);
+  G.ufos.splice(ui, 1);
+  onBossDefeated(u);
+}
+
+function randomBossSpawnPoint() {
   const side = randInt(0, 3);
   let x, y;
   if (side === 0) {
@@ -40,6 +134,31 @@ function spawnBossUfo() {
   } else {
     x = -BOSS_UFO_RADIUS; y = rand(0, G.H);
   }
+  return { x, y };
+}
+
+function bossSpawnIsSafe(point) {
+  const probe = { x: point.x, y: point.y };
+  return G.blackHoles.every(bh => {
+    const safeDistance = bh.gravityR + BOSS_UFO_RADIUS + 100;
+    return blackHoleVector(bh, probe).d > safeDistance;
+  });
+}
+
+function spawnBossUfo() {
+  if (activeBossCount() >= BOSS_UFO_MAX_ACTIVE) return false;
+  if ((G.bossStage || 0) >= bossStageCount()) return false;
+
+  const cfg = currentBossStageConfig();
+  const hp = bossHpForRound(cfg.hp);
+  const missileCount = bossMissileCountForRound(cfg.missileCount || 1);
+  const speed = bossSpeedForRound();
+  let point = randomBossSpawnPoint();
+  for (let i = 0; i < 24 && !bossSpawnIsSafe(point); i++) {
+    point = randomBossSpawnPoint();
+  }
+  const x = point.x;
+  const y = point.y;
 
   const target = closestAlivePlayer(x, y);
   const angle = target && target.ship
@@ -48,39 +167,54 @@ function spawnBossUfo() {
 
   G.ufos.push({
     x, y,
-    vx: Math.cos(angle) * BOSS_UFO_SPEED,
-    vy: Math.sin(angle) * BOSS_UFO_SPEED,
-    r: BOSS_UFO_RADIUS, points: BOSS_UFO_POINTS,
-    hp: BOSS_UFO_HITS,
+    vx: Math.cos(angle) * speed,
+    vy: Math.sin(angle) * speed,
+    r: BOSS_UFO_RADIUS, points: cfg.points || BOSS_UFO_POINTS,
+    hp,
+    maxHp: hp,
     isBoss: true,
+    bossStage: G.bossStage || 0,
+    speed,
+    missileCount,
+    missileSpread: bossMissileSpread(missileCount),
+    volleyShotIndex: 0,
+    volleyStart: 0,
     rot: 0, rotSpeed: rand(-0.8, 0.8),
     dodgeEnd: G.now + UFO_DODGE_TIME,
-    nextFire: G.now + rand(1.0, BOSS_UFO_FIRE_RATE),
+    nextFire: G.now + rand(0.6, 1.4),
     targetId: null,
     lightPhase: rand(0, Math.PI * 2),
     trail: []
   });
+  G.bossStage = Math.min((G.bossStage || 0) + 1, bossStageCount());
   playSound('ufoReveal');
   return true;
 }
 
 function maybeSpawnBossUfo() {
   if (!G.players.some(p => p.alive && p.ship)) return;
-  if (!G.nextBossSpawn) scheduleNextBossUfo();
+  if ((G.bossStage || 0) >= bossStageCount()) return;
+  if (activeBossCount() >= BOSS_UFO_MAX_ACTIVE) return;
+  if (!G.nextBossSpawn) G.nextBossSpawn = G.now + BOSS_UFO_NEXT_SPAWN_DELAY;
   if (G.now >= G.nextBossSpawn) {
-    spawnBossUfo();
-    scheduleNextBossUfo();
+    if (spawnBossUfo()) {
+      G.nextBossSpawn = (G.bossStage || 0) < bossStageCount()
+        ? G.now + BOSS_UFO_MULTI_SPAWN_INTERVAL
+        : 0;
+    }
   }
 }
 
-function spawnMissile(u, target) {
+function spawnMissile(u, target, shotIndex, totalShots) {
   if (!target || !target.ship) return;
   const s = target.ship;
   const angle = Math.atan2(s.y - u.y, s.x - u.x);
-  const count = u.missileCount || (u.isBoss ? BOSS_UFO_MISSILE_COUNT : 1);
-  const spread = u.missileSpread || (u.isBoss ? BOSS_UFO_MISSILE_SPREAD : 0);
+  const count = totalShots || u.missileCount || 1;
+  const spread = u.missileSpread || 0;
   const start = -spread * (count - 1) / 2;
-  for (let i = 0; i < count; i++) {
+  const first = Number.isInteger(shotIndex) ? shotIndex : 0;
+  const last = Number.isInteger(shotIndex) ? shotIndex : count - 1;
+  for (let i = first; i <= last; i++) {
     const a = angle + start + spread * i;
     G.missiles.push({
       x: u.x, y: u.y,
@@ -97,6 +231,26 @@ function spawnMissile(u, target) {
   playSound('missile');
 }
 
+function updateBossVolley(u, target) {
+  if (G.now < u.nextFire) return;
+
+  const total = Math.max(1, u.missileCount || 1);
+  const idx = Math.max(0, Math.min(total - 1, u.volleyShotIndex || 0));
+  if (idx === 0) u.volleyStart = G.now;
+
+  spawnMissile(u, target, idx, total);
+
+  u.volleyShotIndex = idx + 1;
+  if (u.volleyShotIndex >= total) {
+    u.volleyShotIndex = 0;
+    u.nextFire = (u.volleyStart || G.now) + BOSS_UFO_VOLLEY_DURATION;
+    return;
+  }
+
+  const interval = BOSS_UFO_VOLLEY_DURATION / total;
+  u.nextFire = (u.volleyStart || G.now) + interval * u.volleyShotIndex;
+}
+
 function updateUfos(dt) {
   const slowMult = anyPlayerHasSlow() ? 0.4 : 1;
   maybeSpawnBossUfo();
@@ -110,17 +264,17 @@ function updateUfos(dt) {
     u.targetId = target ? target.id : null;
 
     if (target && target.ship) {
-      const moveTargetX = u.isBoss ? G.W / 2 : target.ship.x;
-      const moveTargetY = u.isBoss ? G.H / 2 : target.ship.y;
+      const moveTargetX = target.ship.x;
+      const moveTargetY = target.ship.y;
       let dx = moveTargetX - u.x;
       let dy = moveTargetY - u.y;
-      if (!u.isBoss) {
-        if (Math.abs(dx) > G.W / 2) dx -= Math.sign(dx) * G.W;
-        if (Math.abs(dy) > G.H / 2) dy -= Math.sign(dy) * G.H;
-      }
+      if (Math.abs(dx) > G.W / 2) dx -= Math.sign(dx) * G.W;
+      if (Math.abs(dy) > G.H / 2) dy -= Math.sign(dy) * G.H;
       const d = Math.hypot(dx, dy) || 1;
-      const baseSpeed = u.isBoss ? BOSS_UFO_SPEED : UFO_SPEED;
-      const desiredSpeed = u.isBoss || d > UFO_FOLLOW_DISTANCE ? baseSpeed : baseSpeed * 0.35;
+      const baseSpeed = u.isBoss ? (u.speed || BOSS_UFO_SPEED) : UFO_SPEED;
+      const desiredSpeed = u.isBoss
+        ? (d > BOSS_UFO_RADIUS * 2.2 ? baseSpeed : baseSpeed * 0.35)
+        : (d > UFO_FOLLOW_DISTANCE ? baseSpeed : baseSpeed * 0.35);
       const desiredVx = (dx / d) * desiredSpeed;
       const desiredVy = (dy / d) * desiredSpeed;
       const steer = u.isBoss ? 0.75 : (G.now < u.dodgeEnd ? 0.9 : 1.8);
@@ -133,12 +287,17 @@ function updateUfos(dt) {
       }
 
       if (G.now >= u.nextFire) {
-        spawnMissile(u, target);
-        const fireRate = u.isBoss ? BOSS_UFO_FIRE_RATE : UFO_FIRE_RATE;
-        u.nextFire = G.now + fireRate + rand(-0.25, 0.35);
+        if (u.isBoss) {
+          updateBossVolley(u, target);
+        } else {
+          spawnMissile(u, target);
+          u.nextFire = G.now + UFO_FIRE_RATE + rand(-0.25, 0.35);
+        }
       }
     }
 
+    const blackHoleMaxSpeed = u.isBoss ? (u.speed || BOSS_UFO_SPEED) * 2.0 : UFO_SPEED * 2.0;
+    applyBlackHoleForces(u, dt, { maxSpeed: blackHoleMaxSpeed });
     u.x += u.vx * dt * slowMult;
     u.y += u.vy * dt * slowMult;
     wrap(u);
@@ -176,6 +335,8 @@ function updateMissiles(dt) {
     const speed = MISSILE_SPEED;
     m.vx = Math.cos(m.angle) * speed;
     m.vy = Math.sin(m.angle) * speed;
+    applyBlackHoleForces(m, dt, { maxSpeed: MISSILE_SPEED * 1.45 });
+    m.angle = Math.atan2(m.vy, m.vx);
     m.x += m.vx * dt * slowMult;
     m.y += m.vy * dt * slowMult;
     m.life -= dt;

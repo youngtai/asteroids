@@ -38,6 +38,10 @@ function totalPlayerScore() {
   return G.players.reduce((sum, p) => sum + p.score, 0);
 }
 
+function roundDifficultyTier() {
+  return Math.max(0, (G.round || 1) - 1);
+}
+
 function scoreDifficultyTier() {
   return Math.floor(totalPlayerScore() / UFO_SCORE_STEP);
 }

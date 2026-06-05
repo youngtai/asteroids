@@ -368,7 +368,27 @@ function drawPowerups(t) {
 }
 
 function updateHUD() {
-  document.getElementById('hud-wave').textContent = G.level || 1;
+  const roundEl = document.getElementById('hud-round');
+  if (roundEl) roundEl.textContent = G.round || 1;
+
+  const statusEl = document.getElementById('hud-boss-status');
+  if (statusEl) {
+    const bosses = G.ufos.filter(u => u.isBoss);
+    const boss = bosses.reduce((lowest, u) => !lowest || u.hp < lowest.hp ? u : lowest, null);
+    if (G.state === 'start') {
+      statusEl.textContent = 'READY';
+    } else if (G.state === 'roundComplete') {
+      const remaining = Math.max(0, Math.ceil((G.nextRoundAt || G.now) - G.now));
+      statusEl.textContent = `ROUND CLEAR  NEXT ${remaining}`;
+    } else if (boss) {
+      statusEl.textContent = `BOSSES ${G.bossesDefeated}/${bossStageCount()}  ACTIVE ${bosses.length}/${BOSS_UFO_MAX_ACTIVE}  LOW HP ${Math.max(0, Math.ceil(boss.hp))}`;
+    } else if ((G.bossStage || 0) < bossStageCount()) {
+      const remaining = Math.max(0, Math.ceil((G.nextBossSpawn || G.now) - G.now));
+      statusEl.textContent = `BOSSES ${G.bossesDefeated}/${bossStageCount()}  NEXT ${remaining}`;
+    } else {
+      statusEl.textContent = `BOSSES ${G.bossesDefeated}/${bossStageCount()}`;
+    }
+  }
 
   const pauseEl = document.getElementById('hud-pause');
   pauseEl.style.opacity = G.state === 'paused' ? 1 : 0;
@@ -384,9 +404,8 @@ function updateHUD() {
         el.style.color = player.color;
         el.innerHTML = `
           <div class="score">P${pid} <span id="hud-p${pid}-score">0</span></div>
-          <div class="lives">LIVES <span id="hud-p${pid}-lives"></span></div>
+          <div class="respawns">RESPAWNS &infin; <span id="hud-p${pid}-deaths"></span></div>
           <div class="powerups" id="hud-p${pid}-powerups"></div>
-          <div class="out-label" id="hud-p${pid}-out" style="display:none">OUT</div>
         `;
         hudPlayers.appendChild(el);
       }
@@ -404,15 +423,8 @@ function updateHUD() {
     if (!scoreEl) continue;
     scoreEl.textContent = player.score;
 
-    let livesHTML = '';
-    for (let i = 0; i < player.lives; i++) livesHTML += '\u25B2 ';
-    document.getElementById(`hud-p${pid}-lives`).textContent = livesHTML || '0';
-
-    // Player out indicator
-    const outEl = document.getElementById(`hud-p${pid}-out`);
-    if (outEl) {
-      outEl.style.display = (!player.alive && player.lives <= 0 && G.state === 'playing') ? 'block' : 'none';
-    }
+    const deathsEl = document.getElementById(`hud-p${pid}-deaths`);
+    if (deathsEl) deathsEl.textContent = player.deaths ? `D${player.deaths}` : '';
 
     // Power-ups display
     const puContainer = document.getElementById(`hud-p${pid}-powerups`);

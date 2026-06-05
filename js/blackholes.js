@@ -1,0 +1,266 @@
+/* ============================================================
+   BLACK HOLES
+   ============================================================ */
+function blackHoleTargetCount() {
+  const bonus = Math.floor(roundDifficultyTier() / BLACK_HOLE_ROUND_STEP);
+  return Math.min(BLACK_HOLE_MAX_COUNT, BLACK_HOLE_BASE_COUNT + bonus);
+}
+
+function blackHoleStrength() {
+  return 1 + roundDifficultyTier() * BLACK_HOLE_ROUND_STRENGTH;
+}
+
+function blackHoleVector(bh, obj) {
+  let dx = bh.x - obj.x;
+  let dy = bh.y - obj.y;
+  if (Math.abs(dx) > G.W / 2) dx -= Math.sign(dx) * G.W;
+  if (Math.abs(dy) > G.H / 2) dy -= Math.sign(dy) * G.H;
+  const d = Math.hypot(dx, dy) || 1;
+  return { dx, dy, d };
+}
+
+function randomBlackHoleSpawnCandidate() {
+  const side = randInt(0, 3);
+  let x, y;
+  if (side === 0) {
+    x = rand(0, G.W); y = -BLACK_HOLE_EVENT_RADIUS;
+  } else if (side === 1) {
+    x = G.W + BLACK_HOLE_EVENT_RADIUS; y = rand(0, G.H);
+  } else if (side === 2) {
+    x = rand(0, G.W); y = G.H + BLACK_HOLE_EVENT_RADIUS;
+  } else {
+    x = -BLACK_HOLE_EVENT_RADIUS; y = rand(0, G.H);
+  }
+
+  const targetX = G.W / 2 + rand(-G.W * 0.25, G.W * 0.25);
+  const targetY = G.H / 2 + rand(-G.H * 0.25, G.H * 0.25);
+  const angle = Math.atan2(targetY - y, targetX - x) + rand(-0.45, 0.45);
+  return { x, y, angle };
+}
+
+function blackHoleSpawnIsSafe(candidate) {
+  const probe = { x: candidate.x, y: candidate.y };
+  const blockers = [
+    ...G.players.filter(p => p.alive && p.ship).map(p => p.ship),
+    ...G.ufos
+  ];
+
+  return blockers.every(obj => {
+    const safeDistance = BLACK_HOLE_GRAVITY_RADIUS + (obj.r || SHIP_SIZE) + 80;
+    return blackHoleVector(probe, obj).d > safeDistance;
+  });
+}
+
+function spawnBlackHole() {
+  let candidate = randomBlackHoleSpawnCandidate();
+  for (let i = 0; i < 24 && !blackHoleSpawnIsSafe(candidate); i++) {
+    candidate = randomBlackHoleSpawnCandidate();
+  }
+
+  const strength = blackHoleStrength();
+  G.blackHoles.push({
+    x: candidate.x, y: candidate.y,
+    vx: Math.cos(candidate.angle) * BLACK_HOLE_SPEED,
+    vy: Math.sin(candidate.angle) * BLACK_HOLE_SPEED,
+    r: BLACK_HOLE_RADIUS,
+    eventR: BLACK_HOLE_EVENT_RADIUS,
+    gravityR: BLACK_HOLE_GRAVITY_RADIUS,
+    strength,
+    spin: rand(-1, 1) < 0 ? -1 : 1,
+    phase: rand(0, Math.PI * 2)
+  });
+}
+
+function maintainBlackHoles() {
+  const target = blackHoleTargetCount();
+  while (G.blackHoles.length < target) spawnBlackHole();
+  while (G.blackHoles.length > target) G.blackHoles.pop();
+}
+
+function capObjectSpeed(obj, maxSpeed) {
+  if (!maxSpeed) return;
+  const spd = Math.hypot(obj.vx || 0, obj.vy || 0);
+  if (spd > maxSpeed) {
+    obj.vx = (obj.vx / spd) * maxSpeed;
+    obj.vy = (obj.vy / spd) * maxSpeed;
+  }
+}
+
+function blackHoleForceFactors(bh, distance) {
+  const fieldDepth = Math.max(
+    0,
+    Math.min(1, (bh.gravityR - distance) / Math.max(1, bh.gravityR - bh.eventR))
+  );
+  const innerDepth = Math.max(
+    0,
+    Math.min(1, (bh.eventR * BLACK_HOLE_INNER_PULL_RADIUS_MULT - distance) / Math.max(1, bh.eventR * BLACK_HOLE_INNER_PULL_RADIUS_MULT))
+  );
+
+  const curvedPull = Math.pow(fieldDepth, BLACK_HOLE_PULL_CURVE);
+  const innerPull = Math.pow(innerDepth, 3) * BLACK_HOLE_INNER_PULL_BOOST;
+  const pullFactor = fieldDepth * 0.1 + curvedPull * 1.55 + innerPull;
+  const bendFactor = Math.pow(fieldDepth, 1.45) * (1 - innerDepth * 0.35);
+
+  return { pullFactor, bendFactor };
+}
+
+function applyBlackHoleForces(obj, dt, opts) {
+  if (!obj || !Number.isFinite(obj.x) || !Number.isFinite(obj.y)) return;
+  if (!Number.isFinite(obj.vx)) obj.vx = 0;
+  if (!Number.isFinite(obj.vy)) obj.vy = 0;
+
+  for (const bh of G.blackHoles) {
+    const v = blackHoleVector(bh, obj);
+    if (v.d >= bh.gravityR) continue;
+
+    const nx = v.dx / v.d;
+    const ny = v.dy / v.d;
+    const force = blackHoleForceFactors(bh, v.d);
+    const pull = BLACK_HOLE_PULL * bh.strength * force.pullFactor;
+    const bend = BLACK_HOLE_BEND * bh.strength * force.bendFactor * bh.spin;
+    obj.vx += (nx * pull - ny * bend) * dt;
+    obj.vy += (ny * pull + nx * bend) * dt;
+  }
+
+  capObjectSpeed(obj, opts && opts.maxSpeed);
+}
+
+function blackHoleConsumeEffect(x, y, color) {
+  spawnParticles(x, y, 6, color || '#8cf', 110, 0.35);
+  G.particles.push({
+    x, y, vx: 0, vy: 0,
+    life: 0.35, maxLife: 0.35,
+    color: color || '#8cf',
+    size: 34,
+    type: PT.RING
+  });
+}
+
+function insideEventHorizon(obj, radiusScale) {
+  for (const bh of G.blackHoles) {
+    const extra = (obj.r || 0) * (radiusScale || 0);
+    if (blackHoleVector(bh, obj).d < bh.eventR + extra) return bh;
+  }
+  return null;
+}
+
+function consumeBlackHoleObjects() {
+  for (const player of G.players) {
+    if (!player.alive || !player.ship) continue;
+    const s = player.ship;
+    if (!insideEventHorizon(s, 0.35)) continue;
+
+    player.deaths++;
+    playSound('shipHit');
+    spawnExplosion(s.x, s.y, player.color || '#f44', true);
+    G.shakeMag = Math.min(G.shakeMag + 18, 24);
+    rumble(player, 0.6, 0.9, 130);
+    player.ship = null;
+    player.alive = false;
+  }
+
+  for (let i = G.asteroids.length - 1; i >= 0; i--) {
+    const a = G.asteroids[i];
+    if (insideEventHorizon(a, 0.25)) {
+      blackHoleConsumeEffect(a.x, a.y, a.isPowerup && a.puType ? POWERUPS[a.puType].color : '#aaa');
+      G.asteroids.splice(i, 1);
+    }
+  }
+
+  for (let i = G.ufos.length - 1; i >= 0; i--) {
+    const u = G.ufos[i];
+    if (u.isBoss) continue;
+    if (insideEventHorizon(u, 0.2)) {
+      blackHoleConsumeEffect(u.x, u.y, '#8cf');
+      G.ufos.splice(i, 1);
+    }
+  }
+
+  for (let i = G.missiles.length - 1; i >= 0; i--) {
+    const m = G.missiles[i];
+    if (insideEventHorizon(m, 0.5)) {
+      blackHoleConsumeEffect(m.x, m.y, '#f84');
+      G.missiles.splice(i, 1);
+    }
+  }
+
+  for (let i = G.playerMissiles.length - 1; i >= 0; i--) {
+    const m = G.playerMissiles[i];
+    if (insideEventHorizon(m, 0.5)) {
+      blackHoleConsumeEffect(m.x, m.y, m.color || '#f44');
+      G.playerMissiles.splice(i, 1);
+    }
+  }
+
+  for (let i = G.bullets.length - 1; i >= 0; i--) {
+    const b = G.bullets[i];
+    if (insideEventHorizon(b, 1.5)) G.bullets.splice(i, 1);
+  }
+
+  for (let i = G.powerups.length - 1; i >= 0; i--) {
+    const pu = G.powerups[i];
+    if (insideEventHorizon(pu, 1.0)) {
+      blackHoleConsumeEffect(pu.x, pu.y, POWERUPS[pu.type].color);
+      G.powerups.splice(i, 1);
+    }
+  }
+}
+
+function updateBlackHoles(dt) {
+  maintainBlackHoles();
+
+  for (const bh of G.blackHoles) {
+    bh.x += bh.vx * dt;
+    bh.y += bh.vy * dt;
+    bh.phase += dt * bh.spin * 1.8;
+    wrap(bh);
+  }
+
+  consumeBlackHoleObjects();
+}
+
+function drawBlackHole(bh, t) {
+  const ctx = G.ctx;
+  const pulse = 0.5 + 0.5 * Math.sin(t * 2 + bh.phase);
+
+  ctx.save();
+  ctx.translate(bh.x, bh.y);
+  ctx.rotate(bh.phase);
+
+  ctx.strokeStyle = `rgba(90,190,255,${0.16 + pulse * 0.08})`;
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < 3; i++) {
+    const r = bh.eventR + (i + 1) * ((bh.gravityR - bh.eventR) / 3);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r, r * (0.88 + i * 0.04), i * 0.45, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = `rgba(210,245,255,${0.34 + pulse * 0.18})`;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(0, 0, bh.eventR, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = `rgba(255,120,70,${0.5 + pulse * 0.25})`;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, bh.eventR * 1.25, bh.eventR * 0.38, 0, 0, Math.PI * 1.6);
+  ctx.stroke();
+
+  const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, bh.eventR);
+  grad.addColorStop(0, '#000');
+  grad.addColorStop(0.55, '#000');
+  grad.addColorStop(1, 'rgba(20,70,110,0.9)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(0, 0, bh.eventR * 0.84, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.arc(0, 0, bh.r, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}

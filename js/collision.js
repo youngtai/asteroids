@@ -49,9 +49,7 @@ function explodePlayerMissile(m) {
     if (dist(m.x, m.y, uf.x, uf.y) <= SPECIAL_MISSILE_AOE_RADIUS + uf.r) {
       uf.hp -= SPECIAL_MISSILE_DAMAGE;
       if (uf.hp <= 0) {
-        if (owner) owner.score += uf.points;
-        spawnUfoExplosion(uf.x, uf.y);
-        G.ufos.splice(ui, 1);
+        destroyUfo(uf, owner, ui);
       }
     }
   }
@@ -96,9 +94,7 @@ function checkCollisions() {
         G.shakeMag = Math.min(G.shakeMag + 8, 12);
         playSound(uf.hp <= 0 ? 'explode' : 'hit');
         if (uf.hp <= 0) {
-          if (owner) owner.score += uf.points;
-          spawnUfoExplosion(uf.x, uf.y);
-          G.ufos.splice(ui, 1);
+          destroyUfo(uf, owner, ui);
         }
         if (!b.laser) G.bullets.splice(bi, 1);
         break;
@@ -199,7 +195,7 @@ function checkCollisions() {
           break;
         }
         playSound('shipHit');
-        if (player.lives > 0) player.lives--;
+        player.deaths++;
         spawnExplosion(s.x, s.y, '#f44', true);
         G.shakeMag = 15;
         rumble(player, 0.5, 0.8, 100); // rumble on ship death
@@ -229,7 +225,7 @@ function checkCollisions() {
           break;
         }
         playSound('shipHit');
-        if (player.lives > 0) player.lives--;
+        player.deaths++;
         spawnExplosion(s.x, s.y, '#f44', true);
         G.shakeMag = 15;
         rumble(player, 0.5, 0.8, 100); // rumble on ship death
@@ -262,7 +258,7 @@ function checkCollisions() {
           break;
         }
         playSound('shipHit');
-        if (player.lives > 0) player.lives--;
+        player.deaths++;
         spawnExplosion(s.x, s.y, '#f44', true);
         G.shakeMag = 15;
         rumble(player, 0.5, 0.8, 100);
@@ -273,24 +269,11 @@ function checkCollisions() {
     }
   }
 
-  // Respawn players who still have lives
+  // Respawn players indefinitely.
   for (const player of G.players) {
-    if (!player.alive && player.lives > 0) {
+    if (!player.alive) {
       respawnShip(player);
     }
-  }
-
-  // Check game over: both players dead
-  const allOut = G.players.every(p => !p.alive && p.lives <= 0);
-  if (allOut && G.state === 'playing') {
-    G.state = 'gameover';
-    const totalScore = G.players.reduce((sum, p) => sum + p.score, 0);
-    document.getElementById('final-player-scores').textContent =
-      G.players.map(p => `P${p.id}: ${p.score}`).join('  |  ');
-    document.getElementById('final-score').textContent = totalScore;
-    document.getElementById('gameover-overlay').classList.remove('hidden');
-    updateHUD();
-    return;
   }
 
 }

@@ -13,6 +13,7 @@ function updateParticles(dt) {
 function updateAsteroids(dt) {
   const slowMult = anyPlayerHasSlow() ? 0.4 : 1;
   for (const a of G.asteroids) {
+    applyBlackHoleForces(a, dt, { maxSpeed: ASTEROID_SPEED_HI * 2.4 });
     a.x += a.vx * dt * slowMult;
     a.y += a.vy * dt * slowMult;
     a.rot += a.rotSpeed * dt * slowMult;
@@ -23,6 +24,8 @@ function updateAsteroids(dt) {
 function updatePowerups(dt) {
   for (let i = G.powerups.length - 1; i >= 0; i--) {
     const pu = G.powerups[i];
+    applyBlackHoleForces(pu, dt, { maxSpeed: 160 });
+    pu.x += pu.vx * dt;
     pu.y += pu.vy * dt;
     pu.life -= dt;
     pu.pulse += dt * 4;

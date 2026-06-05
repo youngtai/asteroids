@@ -23,9 +23,10 @@ function spawnAsteroid(x, y, sizeKey) {
 function targetLargeAsteroids() {
   const areaTarget = Math.floor((G.W * G.H) / ASTEROID_AREA_PER_LARGE);
   const scoreBonus = Math.floor(totalPlayerScore() / ASTEROID_SCORE_STEP);
+  const roundBonus = Math.floor(roundDifficultyTier() / ROUND_ASTEROID_BONUS_EVERY);
   return Math.max(
     ASTEROID_MIN_LARGE,
-    Math.min(ASTEROID_MAX_LARGE, areaTarget + scoreBonus)
+    Math.min(ASTEROID_MAX_LARGE, areaTarget + scoreBonus + roundBonus)
   );
 }
 

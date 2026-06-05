@@ -81,6 +81,8 @@ function updateShip(player, dt) {
   const spd = Math.hypot(s.vx, s.vy);
   if (spd > MAX_SPEED) { s.vx *= MAX_SPEED / spd; s.vy *= MAX_SPEED / spd; }
 
+  applyBlackHoleForces(s, dt, { maxSpeed: MAX_SPEED * 1.35 });
+
   // --- Position ---
   s.x += s.vx * dt;
   s.y += s.vy * dt;

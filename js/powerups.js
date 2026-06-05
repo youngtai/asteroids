@@ -5,7 +5,7 @@ function spawnPowerup(x, y, type) {
   if (G.powerups.length >= MAX_VISIBLE_POWERUPS) return false;
 
   G.powerups.push({
-    x, y, type, vy: -30, life: POWERUP_LIFETIME, pulse: 0, r: POWERUP_RADIUS
+    x, y, type, vx: 0, vy: -30, life: POWERUP_LIFETIME, pulse: 0, r: POWERUP_RADIUS
   });
   return true;
 }
