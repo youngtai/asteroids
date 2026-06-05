@@ -10,6 +10,10 @@ function blackHoleStrength() {
   return 1 + roundDifficultyTier() * BLACK_HOLE_ROUND_STRENGTH;
 }
 
+function blackHoleMassToRadius(baseRadius, mass, maxRadius) {
+  return Math.min(maxRadius, baseRadius * Math.sqrt(Math.max(1, mass)));
+}
+
 function blackHoleVector(bh, obj) {
   let dx = bh.x - obj.x;
   let dy = bh.y - obj.y;
@@ -62,6 +66,7 @@ function spawnBlackHole() {
     x: candidate.x, y: candidate.y,
     vx: Math.cos(candidate.angle) * BLACK_HOLE_SPEED,
     vy: Math.sin(candidate.angle) * BLACK_HOLE_SPEED,
+    mass: 1,
     r: BLACK_HOLE_RADIUS,
     eventR: BLACK_HOLE_EVENT_RADIUS,
     gravityR: BLACK_HOLE_GRAVITY_RADIUS,
@@ -125,6 +130,79 @@ function applyBlackHoleForces(obj, dt, opts) {
   capObjectSpeed(obj, opts && opts.maxSpeed);
 }
 
+function applyBlackHoleMutualGravity(dt) {
+  for (let i = 0; i < G.blackHoles.length; i++) {
+    const a = G.blackHoles[i];
+    for (let j = i + 1; j < G.blackHoles.length; j++) {
+      const b = G.blackHoles[j];
+      const v = blackHoleVector(a, b);
+      if (v.d >= Math.max(a.gravityR, b.gravityR)) continue;
+
+      const nx = v.dx / v.d;
+      const ny = v.dy / v.d;
+      const depth = 1 - v.d / Math.max(a.gravityR, b.gravityR);
+      const pull = BLACK_HOLE_MUTUAL_PULL * depth * depth;
+      const aMass = a.mass || 1;
+      const bMass = b.mass || 1;
+      a.vx -= nx * pull * (bMass / aMass) * dt;
+      a.vy -= ny * pull * (bMass / aMass) * dt;
+      b.vx += nx * pull * (aMass / bMass) * dt;
+      b.vy += ny * pull * (aMass / bMass) * dt;
+    }
+  }
+}
+
+function mergeBlackHolePair(absorber, absorbed) {
+  const aMass = absorber.mass || 1;
+  const bMass = absorbed.mass || 1;
+  const totalMass = aMass + bMass;
+  const v = blackHoleVector(absorber, absorbed);
+  const absorbedX = absorber.x - v.dx;
+  const absorbedY = absorber.y - v.dy;
+
+  absorber.x = (absorber.x * aMass + absorbedX * bMass) / totalMass;
+  absorber.y = (absorber.y * aMass + absorbedY * bMass) / totalMass;
+  absorber.vx = (absorber.vx * aMass + absorbed.vx * bMass) / totalMass;
+  absorber.vy = (absorber.vy * aMass + absorbed.vy * bMass) / totalMass;
+  absorber.mass = totalMass;
+  absorber.r = blackHoleMassToRadius(BLACK_HOLE_RADIUS, totalMass, BLACK_HOLE_MAX_EVENT_RADIUS * 0.45);
+  absorber.eventR = blackHoleMassToRadius(BLACK_HOLE_EVENT_RADIUS, totalMass, BLACK_HOLE_MAX_EVENT_RADIUS);
+  absorber.gravityR = blackHoleMassToRadius(BLACK_HOLE_GRAVITY_RADIUS, totalMass, BLACK_HOLE_MAX_GRAVITY_RADIUS);
+  absorber.strength = Math.max(absorber.strength, absorbed.strength) + absorbed.strength * BLACK_HOLE_MERGE_STRENGTH_GAIN;
+  absorber.spin = Math.abs(aMass * absorber.spin + bMass * absorbed.spin) < 0.1
+    ? absorber.spin
+    : Math.sign(aMass * absorber.spin + bMass * absorbed.spin);
+  absorber.phase = (absorber.phase + absorbed.phase) * 0.5;
+  wrap(absorber);
+
+  blackHoleConsumeEffect(absorber.x, absorber.y, '#8cf');
+  G.particles.push({
+    x: absorber.x, y: absorber.y, vx: 0, vy: 0,
+    life: 0.8, maxLife: 0.8,
+    color: '#fff',
+    size: absorber.eventR * 1.8,
+    type: PT.RING
+  });
+  G.shakeMag = Math.min(G.shakeMag + 10 + totalMass * 2, 28);
+}
+
+function mergeBlackHoles() {
+  for (let i = G.blackHoles.length - 1; i >= 0; i--) {
+    const a = G.blackHoles[i];
+    for (let j = i - 1; j >= 0; j--) {
+      const b = G.blackHoles[j];
+      const mergeDistance = (a.eventR + b.eventR) * BLACK_HOLE_MERGE_DISTANCE_MULT;
+      if (blackHoleVector(a, b).d > mergeDistance) continue;
+
+      const absorber = (a.mass || 1) >= (b.mass || 1) ? a : b;
+      const absorbed = absorber === a ? b : a;
+      mergeBlackHolePair(absorber, absorbed);
+      G.blackHoles.splice(G.blackHoles.indexOf(absorbed), 1);
+      break;
+    }
+  }
+}
+
 function blackHoleConsumeEffect(x, y, color) {
   spawnParticles(x, y, 6, color || '#8cf', 110, 0.35);
   G.particles.push({
@@ -169,10 +247,13 @@ function consumeBlackHoleObjects() {
 
   for (let i = G.ufos.length - 1; i >= 0; i--) {
     const u = G.ufos[i];
-    if (u.isBoss) continue;
     if (insideEventHorizon(u, 0.2)) {
-      blackHoleConsumeEffect(u.x, u.y, '#8cf');
-      G.ufos.splice(i, 1);
+      if (u.isBoss) {
+        destroyUfo(u, null, i);
+      } else {
+        blackHoleConsumeEffect(u.x, u.y, '#8cf');
+        G.ufos.splice(i, 1);
+      }
     }
   }
 
@@ -208,14 +289,17 @@ function consumeBlackHoleObjects() {
 
 function updateBlackHoles(dt) {
   maintainBlackHoles();
+  applyBlackHoleMutualGravity(dt);
 
   for (const bh of G.blackHoles) {
+    capObjectSpeed(bh, BLACK_HOLE_SPEED * 1.9);
     bh.x += bh.vx * dt;
     bh.y += bh.vy * dt;
     bh.phase += dt * bh.spin * 1.8;
     wrap(bh);
   }
 
+  mergeBlackHoles();
   consumeBlackHoleObjects();
 }
 

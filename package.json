@@ -4,7 +4,10 @@
   "private": true,
   "scripts": {
     "build": "rm -rf dist && mkdir dist && cp index.html dist/index.html && cp -R css js _headers dist/",
-    "dev": "npm run build && npx wrangler pages dev dist",
-    "deploy": "npm run build && npx wrangler pages deploy dist --project-name asteroids --branch main"
+    "dev": "npm run build && WRANGLER_LOG_PATH=.wrangler/logs wrangler pages dev dist",
+    "deploy": "npm run build && WRANGLER_LOG_PATH=.wrangler/logs wrangler pages deploy dist --project-name asteroids --branch main"
+  },
+  "devDependencies": {
+    "wrangler": "^4.98.0"
   }
 }
