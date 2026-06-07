@@ -14,6 +14,13 @@ function blackHoleMassToRadius(baseRadius, mass, maxRadius) {
   return Math.min(maxRadius, baseRadius * Math.sqrt(Math.max(1, mass)));
 }
 
+function updateBlackHoleSize(bh) {
+  const mass = bh.mass || 1;
+  bh.r = blackHoleMassToRadius(BLACK_HOLE_RADIUS, mass, BLACK_HOLE_MAX_EVENT_RADIUS * 0.45);
+  bh.eventR = blackHoleMassToRadius(BLACK_HOLE_EVENT_RADIUS, mass, BLACK_HOLE_MAX_EVENT_RADIUS);
+  bh.gravityR = blackHoleMassToRadius(BLACK_HOLE_GRAVITY_RADIUS, mass, BLACK_HOLE_MAX_GRAVITY_RADIUS);
+}
+
 function blackHoleVector(bh, obj) {
   let dx = bh.x - obj.x;
   let dy = bh.y - obj.y;
@@ -165,9 +172,7 @@ function mergeBlackHolePair(absorber, absorbed) {
   absorber.vx = (absorber.vx * aMass + absorbed.vx * bMass) / totalMass;
   absorber.vy = (absorber.vy * aMass + absorbed.vy * bMass) / totalMass;
   absorber.mass = totalMass;
-  absorber.r = blackHoleMassToRadius(BLACK_HOLE_RADIUS, totalMass, BLACK_HOLE_MAX_EVENT_RADIUS * 0.45);
-  absorber.eventR = blackHoleMassToRadius(BLACK_HOLE_EVENT_RADIUS, totalMass, BLACK_HOLE_MAX_EVENT_RADIUS);
-  absorber.gravityR = blackHoleMassToRadius(BLACK_HOLE_GRAVITY_RADIUS, totalMass, BLACK_HOLE_MAX_GRAVITY_RADIUS);
+  updateBlackHoleSize(absorber);
   absorber.strength = Math.max(absorber.strength, absorbed.strength) + absorbed.strength * BLACK_HOLE_MERGE_STRENGTH_GAIN;
   absorber.spin = Math.abs(aMass * absorber.spin + bMass * absorbed.spin) < 0.1
     ? absorber.spin
@@ -214,6 +219,30 @@ function blackHoleConsumeEffect(x, y, color) {
   });
 }
 
+function consumedBlackHoleMass(obj, type) {
+  if (type === 'ship') return 1.0;
+  if (type === 'ufo') return obj && obj.isBoss ? 6.0 : 1.15;
+  if (type === 'asteroid') {
+    if (!obj) return 0.4;
+    if (obj.sizeKey === 'LARGE') return 1.0;
+    if (obj.sizeKey === 'MEDIUM') return 0.45;
+    return 0.18;
+  }
+  if (type === 'playerMissile') return 0.32;
+  if (type === 'enemyMissile') return 0.2;
+  if (type === 'bullet') return obj && obj.laser ? 0.025 : 0.04;
+  if (type === 'powerup') return 0.25;
+  return 0.1;
+}
+
+function growBlackHoleFromConsumption(bh, obj, type) {
+  if (!bh) return;
+  const gainedMass = consumedBlackHoleMass(obj, type);
+  bh.mass = (bh.mass || 1) + gainedMass;
+  updateBlackHoleSize(bh);
+  bh.strength += gainedMass * BLACK_HOLE_CONSUME_STRENGTH_GAIN;
+}
+
 function insideEventHorizon(obj, radiusScale) {
   for (const bh of G.blackHoles) {
     const extra = (obj.r || 0) * (radiusScale || 0);
@@ -226,8 +255,10 @@ function consumeBlackHoleObjects() {
   for (const player of G.players) {
     if (!player.alive || !player.ship) continue;
     const s = player.ship;
-    if (!insideEventHorizon(s, 0.35)) continue;
+    const bh = insideEventHorizon(s, 0.35);
+    if (!bh) continue;
 
+    growBlackHoleFromConsumption(bh, s, 'ship');
     player.deaths++;
     playSound('shipHit');
     spawnExplosion(s.x, s.y, player.color || '#f44', true);
@@ -239,7 +270,9 @@ function consumeBlackHoleObjects() {
 
   for (let i = G.asteroids.length - 1; i >= 0; i--) {
     const a = G.asteroids[i];
-    if (insideEventHorizon(a, 0.25)) {
+    const bh = insideEventHorizon(a, 0.25);
+    if (bh) {
+      growBlackHoleFromConsumption(bh, a, 'asteroid');
       blackHoleConsumeEffect(a.x, a.y, a.isPowerup && a.puType ? POWERUPS[a.puType].color : '#aaa');
       G.asteroids.splice(i, 1);
     }
@@ -247,7 +280,9 @@ function consumeBlackHoleObjects() {
 
   for (let i = G.ufos.length - 1; i >= 0; i--) {
     const u = G.ufos[i];
-    if (insideEventHorizon(u, 0.2)) {
+    const bh = insideEventHorizon(u, 0.2);
+    if (bh) {
+      growBlackHoleFromConsumption(bh, u, 'ufo');
       if (u.isBoss) {
         destroyUfo(u, null, i);
       } else {
@@ -259,7 +294,9 @@ function consumeBlackHoleObjects() {
 
   for (let i = G.missiles.length - 1; i >= 0; i--) {
     const m = G.missiles[i];
-    if (insideEventHorizon(m, 0.5)) {
+    const bh = insideEventHorizon(m, 0.5);
+    if (bh) {
+      growBlackHoleFromConsumption(bh, m, 'enemyMissile');
       blackHoleConsumeEffect(m.x, m.y, '#f84');
       G.missiles.splice(i, 1);
     }
@@ -267,7 +304,9 @@ function consumeBlackHoleObjects() {
 
   for (let i = G.playerMissiles.length - 1; i >= 0; i--) {
     const m = G.playerMissiles[i];
-    if (insideEventHorizon(m, 0.5)) {
+    const bh = insideEventHorizon(m, 0.5);
+    if (bh) {
+      growBlackHoleFromConsumption(bh, m, 'playerMissile');
       blackHoleConsumeEffect(m.x, m.y, m.color || '#f44');
       G.playerMissiles.splice(i, 1);
     }
@@ -275,12 +314,19 @@ function consumeBlackHoleObjects() {
 
   for (let i = G.bullets.length - 1; i >= 0; i--) {
     const b = G.bullets[i];
-    if (insideEventHorizon(b, 1.5)) G.bullets.splice(i, 1);
+    const bh = insideEventHorizon(b, 1.5);
+    if (bh) {
+      growBlackHoleFromConsumption(bh, b, 'bullet');
+      blackHoleConsumeEffect(b.x, b.y, b.color || '#fff');
+      G.bullets.splice(i, 1);
+    }
   }
 
   for (let i = G.powerups.length - 1; i >= 0; i--) {
     const pu = G.powerups[i];
-    if (insideEventHorizon(pu, 1.0)) {
+    const bh = insideEventHorizon(pu, 1.0);
+    if (bh) {
+      growBlackHoleFromConsumption(bh, pu, 'powerup');
       blackHoleConsumeEffect(pu.x, pu.y, POWERUPS[pu.type].color);
       G.powerups.splice(i, 1);
     }

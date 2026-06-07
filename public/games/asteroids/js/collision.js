@@ -61,6 +61,38 @@ function explodePlayerMissile(m) {
       G.missiles.splice(emi, 1);
     }
   }
+
+  for (const player of G.players) {
+    if (!player.alive || !player.ship || player.id === (m.owner || 1)) continue;
+    damagePlayerWithRocket(player, m, SPECIAL_MISSILE_AOE_RADIUS);
+  }
+}
+
+function damagePlayerWithRocket(player, m, blastRadius) {
+  const s = player.ship;
+  if (!s || G.now < s.invulnEnd) return false;
+  if (dist(m.x, m.y, s.x, s.y) > blastRadius + SHIP_SIZE * 0.65) return false;
+
+  if (player.hasShield && player.shieldHits > 0) {
+    player.shieldHits--;
+    spawnShieldHit(s.x, s.y);
+    spawnExplosion(m.x, m.y, m.color || '#f44', false);
+    G.shakeMag = Math.min(G.shakeMag + 8, 14);
+    if (player.shieldHits <= 0) {
+      player.hasShield = false;
+      player.shipSkin = 'default';
+    }
+    return true;
+  }
+
+  playSound('shipHit');
+  player.deaths++;
+  spawnExplosion(s.x, s.y, m.color || '#f44', true);
+  G.shakeMag = Math.min(G.shakeMag + 16, 24);
+  rumble(player, 0.5, 0.8, 100);
+  player.ship = null;
+  player.alive = false;
+  return true;
 }
 
 function checkCollisions() {
@@ -155,6 +187,16 @@ function checkCollisions() {
 
     for (const uf of G.ufos) {
       if (dist(pm.x, pm.y, uf.x, uf.y) < uf.r + pm.r) {
+        explodePlayerMissile(pm);
+        exploded = true;
+        break;
+      }
+    }
+    if (exploded) continue;
+
+    for (const player of G.players) {
+      if (!player.alive || !player.ship || player.id === (pm.owner || 1)) continue;
+      if (dist(pm.x, pm.y, player.ship.x, player.ship.y) < SHIP_SIZE * 0.65 + pm.r) {
         explodePlayerMissile(pm);
         exploded = true;
         break;
