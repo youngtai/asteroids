@@ -237,7 +237,7 @@ function consumedBlackHoleMass(obj, type) {
 
 function growBlackHoleFromConsumption(bh, obj, type) {
   if (!bh) return;
-  const gainedMass = consumedBlackHoleMass(obj, type);
+  const gainedMass = consumedBlackHoleMass(obj, type) * BLACK_HOLE_CONSUMED_MASS_SCALE;
   bh.mass = (bh.mass || 1) + gainedMass;
   updateBlackHoleSize(bh);
   bh.strength += gainedMass * BLACK_HOLE_CONSUME_STRENGTH_GAIN;
