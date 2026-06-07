@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" role="img" aria-label="Basket">
+  <path d="M47 78 C50 42 130 42 133 78" fill="none" stroke="#2e3d28" stroke-width="10" stroke-linecap="round"/>
+  <path d="M32 75 L148 75 L136 150 L44 150Z" fill="#c87d3f" stroke="#2e3d28" stroke-width="10"/>
+  <path d="M43 98 L138 98 M40 123 L140 123 M65 77 L61 150 M93 77 L91 150 M121 77 L116 150" stroke="#8c532e" stroke-width="8"/>
+</svg>

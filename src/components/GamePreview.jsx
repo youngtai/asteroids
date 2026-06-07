@@ -1,0 +1,15 @@
+export function GamePreview({ type }) {
+  return (
+    <div className={`game-preview game-preview--${type}`} aria-hidden="true">
+      <span className="preview-star preview-star--one" />
+      <span className="preview-star preview-star--two" />
+      <span className="preview-star preview-star--three" />
+      <span className="preview-ship" />
+      <span className="preview-rock preview-rock--one" />
+      <span className="preview-rock preview-rock--two" />
+      <span className="preview-orbit" />
+      <span className="preview-sticker preview-sticker--one" />
+      <span className="preview-sticker preview-sticker--two" />
+    </div>
+  );
+}

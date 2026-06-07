@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Paper school desk">
+  <defs>
+    <filter id="paper-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#000" flood-opacity=".16"/>
+    </filter>
+  </defs>
+  <g filter="url(#paper-shadow)">
+    <path d="M192 292h640l-85 245H277z" fill="#fff" stroke="#fff" stroke-width="92" stroke-linejoin="round"/>
+    <path d="M286 509h82v327h-82zM656 509h82v327h-82z" fill="#fff" stroke="#fff" stroke-width="92" stroke-linejoin="round"/>
+    <path d="M192 292h640l-85 245H277z" fill="#e7a74e" stroke="#2e2117" stroke-width="22" stroke-linejoin="round"/>
+    <path d="M286 509h82v327h-82zM656 509h82v327h-82z" fill="#b46f3a" stroke="#2e2117" stroke-width="20" stroke-linejoin="round"/>
+    <path d="M259 382h499" fill="none" stroke="#f0c67c" stroke-width="34" stroke-linecap="round"/>
+  </g>
+</svg>

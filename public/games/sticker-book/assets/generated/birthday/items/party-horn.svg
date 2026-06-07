@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Paper party horn">
+  <defs>
+    <filter id="paper-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#000" flood-opacity=".16"/>
+    </filter>
+  </defs>
+  <g filter="url(#paper-shadow)">
+    <path d="M197 569 798 310c61-26 123 21 117 86l-14 151c-6 66-77 104-134 70L202 733c-78 16-142-40-132-118 9-69 61-87 127-46z" fill="#fff" stroke="#fff" stroke-width="92" stroke-linejoin="round"/>
+    <path d="M197 569 798 310c61-26 123 21 117 86l-14 151c-6 66-77 104-134 70z" fill="#f5d45d" stroke="#2e2117" stroke-width="22" stroke-linejoin="round"/>
+    <path d="M202 733c-78 16-142-40-132-118 9-69 61-87 127-46l116 69z" fill="#ef776b" stroke="#2e2117" stroke-width="22" stroke-linejoin="round"/>
+    <path d="m420 473 58 138M583 404l58 138M747 334l58 138" fill="none" stroke="#55a5c1" stroke-width="30" stroke-linecap="round"/>
+  </g>
+</svg>

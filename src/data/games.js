@@ -1,0 +1,32 @@
+export const games = [
+  {
+    id: 'asteroids',
+    title: 'Asteroids',
+    path: '/games/asteroids',
+    players: '1-4 players',
+    pace: 'Boss waves',
+    blurb: 'Clear asteroid fields, collect powerups, and team up against mothership rounds.',
+    accent: 'cyan',
+    thumbnail: 'asteroids',
+  },
+  {
+    id: 'star-catcher',
+    title: 'Star Catcher',
+    path: '/games/star-catcher',
+    players: '1 player',
+    pace: 'Quick run',
+    blurb: 'Sweep up bright stars while steering clear of drifting comets.',
+    accent: 'gold',
+    thumbnail: 'star-catcher',
+  },
+  {
+    id: 'sticker-book',
+    title: 'Sticker Book',
+    path: '/games/sticker-book',
+    players: '1 player',
+    pace: 'Creative play',
+    blurb: 'Place stickers across playful scenes and collect English and Korean words.',
+    accent: 'mint',
+    thumbnail: 'sticker-book',
+  },
+];

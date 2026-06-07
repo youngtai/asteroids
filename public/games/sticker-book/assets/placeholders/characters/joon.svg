@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 620" role="img" aria-label="Joon paper doll">
+  <path d="M129 186 C70 230 58 350 110 420 L94 582 L270 582 L250 420 C306 348 288 230 231 186Z" fill="#f1c49c" stroke="#2e3d28" stroke-width="10"/>
+  <path d="M116 205 C74 258 76 350 126 421 L232 421 C282 346 282 257 238 205Z" fill="#dff1ff" stroke="#2e3d28" stroke-width="10"/>
+  <circle cx="180" cy="118" r="82" fill="#f1c49c" stroke="#2e3d28" stroke-width="10"/>
+  <path d="M103 95 C118 27 219 14 258 72 C280 104 274 139 266 158 C218 103 162 94 103 95Z" fill="#332b25" stroke="#2e3d28" stroke-width="10"/>
+  <circle cx="151" cy="124" r="8" fill="#2e3d28"/>
+  <circle cx="211" cy="124" r="8" fill="#2e3d28"/>
+  <path d="M154 158 C174 174 197 174 214 158" fill="none" stroke="#2e3d28" stroke-width="8" stroke-linecap="round"/>
+  <path d="M112 582 L154 582 L154 420 L124 420Z" fill="#6b91d8" stroke="#2e3d28" stroke-width="10"/>
+  <path d="M206 420 L206 582 L248 582 L236 420Z" fill="#6b91d8" stroke="#2e3d28" stroke-width="10"/>
+</svg>

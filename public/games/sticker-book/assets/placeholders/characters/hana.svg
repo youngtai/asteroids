@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 620" role="img" aria-label="Hana paper doll">
+  <path d="M132 182 C65 220 54 346 108 418 L91 582 L272 582 L252 418 C308 342 287 220 227 182Z" fill="#ffd7b5" stroke="#2e3d28" stroke-width="10"/>
+  <path d="M116 205 C72 258 72 350 126 421 L232 421 C282 346 282 256 238 205Z" fill="#fff4da" stroke="#2e3d28" stroke-width="10"/>
+  <circle cx="180" cy="118" r="83" fill="#ffd7b5" stroke="#2e3d28" stroke-width="10"/>
+  <path d="M92 120 C82 42 148 12 201 30 C248 44 286 78 268 145 C232 103 176 101 92 120Z" fill="#34302b" stroke="#2e3d28" stroke-width="10"/>
+  <circle cx="150" cy="122" r="8" fill="#2e3d28"/>
+  <circle cx="211" cy="122" r="8" fill="#2e3d28"/>
+  <path d="M153 157 C172 172 196 172 213 157" fill="none" stroke="#2e3d28" stroke-width="8" stroke-linecap="round"/>
+  <path d="M112 582 L154 582 L154 420 L124 420Z" fill="#f48f74" stroke="#2e3d28" stroke-width="10"/>
+  <path d="M206 420 L206 582 L248 582 L236 420Z" fill="#f48f74" stroke="#2e3d28" stroke-width="10"/>
+</svg>

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" role="img" aria-label="Kite">
+  <path d="M90 18 L146 76 L90 142 L34 76Z" fill="#79cde6" stroke="#2e3d28" stroke-width="10"/>
+  <path d="M90 18 L90 142 M34 76 L146 76" stroke="#2e3d28" stroke-width="8"/>
+  <path d="M90 142 C79 158 107 162 93 176" fill="none" stroke="#2e3d28" stroke-width="7" stroke-linecap="round"/>
+  <path d="M90 18 L146 76 L90 76Z" fill="#f58d54" opacity="0.88"/>
+</svg>

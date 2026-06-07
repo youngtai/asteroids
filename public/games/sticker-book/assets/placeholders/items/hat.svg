@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" role="img" aria-label="Hat">
+  <path d="M48 102 C58 53 122 53 132 102Z" fill="#ffd765" stroke="#2e3d28" stroke-width="10"/>
+  <path d="M26 108 C56 96 124 96 154 108 C145 134 35 134 26 108Z" fill="#ffd765" stroke="#2e3d28" stroke-width="10"/>
+  <path d="M55 98 C76 107 106 107 126 98" fill="none" stroke="#e85b4e" stroke-width="10" stroke-linecap="round"/>
+</svg>

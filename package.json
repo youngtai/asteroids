@@ -2,12 +2,27 @@
   "name": "asteroids",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "pnpm@10.25.0",
   "scripts": {
-    "build": "rm -rf dist && mkdir dist && cp index.html dist/index.html && cp -R css js _headers dist/",
-    "dev": "npm run build && WRANGLER_LOG_PATH=.wrangler/logs wrangler pages dev dist",
-    "deploy": "npm run build && WRANGLER_LOG_PATH=.wrangler/logs wrangler pages deploy dist --project-name asteroids --branch main"
+    "build": "vite build",
+    "dev": "vite --host 0.0.0.0",
+    "check": "biome check .",
+    "format": "biome format --write .",
+    "lint": "biome lint .",
+    "preview": "vite preview --host 0.0.0.0",
+    "pages:dev": "pnpm run build && WRANGLER_LOG_PATH=.wrangler/logs wrangler pages dev dist",
+    "deploy": "pnpm run build && WRANGLER_LOG_PATH=.wrangler/logs wrangler pages deploy dist --project-name asteroids --branch main"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.16",
+    "@vitejs/plugin-react": "^6.0.2",
+    "vite": "^8.0.16",
     "wrangler": "^4.98.0"
+  },
+  "dependencies": {
+    "@tanstack/react-router": "^1.170.13",
+    "lucide-react": "^1.17.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
   }
 }

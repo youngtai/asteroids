@@ -1,81 +1,12 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Asteroids</title>
-<meta http-equiv="Cache-Control" content="no-store">
-<link rel="stylesheet" href="css/styles.css?v=20260605145500">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clean Arcade</title>
 </head>
 <body>
-
-<canvas id="game"></canvas>
-
-<div id="hud">
-  <div id="hud-players"></div>
-  <div class="center">
-    <div>ROUND <span id="hud-round">1</span></div>
-    <div id="hud-boss-status">BOSS 1/3</div>
-    <div id="hud-pause" style="opacity:0">PAUSED</div>
-  </div>
-  <div></div>
-</div>
-
-<div class="overlay" id="start-overlay">
-  <h1>ASTEROIDS</h1>
-  <div class="player-select" id="player-select" aria-label="Player count">
-    <button type="button" data-players="1">1P</button>
-    <button type="button" data-players="2" class="selected">2P</button>
-    <button type="button" data-players="3">3P</button>
-    <button type="button" data-players="4">4P</button>
-  </div>
-  <p>P1: WASD + Space &middot; P2: Arrows + Enter</p>
-  <p class="sub">P3: IJKL + U &middot; P4: TFGH + Y</p>
-  <p class="sub">Gamepad: Left Stick = Steer &middot; B = Thrust &middot; A / RT = Fire &middot; LT = Missile</p>
-  <p class="sub">D-pad = Keyboard fallback &middot; Start = Menu</p>
-  <p class="sub">Press 1-4 to choose players</p>
-  <p class="sub" style="margin-top:8px">P = pause &middot; R = restart</p>
-  <button type="button" class="start-button" id="start-button">START</button>
-  <p class="sub" style="margin-top:12px">Press any key / Start button to start</p>
-  <p class="sub" style="margin-top:8px">Defeat five motherships to clear each round</p>
-  <div class="sub" id="gp-status" style="margin-top:12px; opacity:0.5; font-size:13px"></div>
-</div>
-
-<div class="overlay hidden" id="gameover-overlay">
-  <h1>GAME OVER</h1>
-  <p id="final-player-scores"></p>
-  <p>Total: <span id="final-score">0</span></p>
-  <p class="sub">Press R / Start button to restart</p>
-</div>
-
-<div class="overlay hidden" id="paused-overlay">
-  <h1>PAUSED</h1>
-  <p class="sub">Press P to resume</p>
-</div>
-
-<div class="overlay hidden" id="round-overlay">
-  <h1>ROUND CLEAR</h1>
-  <p>Next round incoming</p>
-  <p class="sub">Press Space / Enter / Start to continue</p>
-</div>
-
-<!-- Script modules in dependency order -->
-<script src="js/constants.js?v=20260605145500"></script>
-<script src="js/state.js?v=20260605145500"></script>
-<script src="js/utils.js?v=20260605145500"></script>
-<script src="js/sound.js?v=20260605145500"></script>
-<script src="js/particles.js?v=20260605145500"></script>
-<script src="js/blackholes.js?v=20260605145500"></script>
-<script src="js/asteroids.js?v=20260605145500"></script>
-<script src="js/powerups.js?v=20260605145500"></script>
-<script src="js/ufo.js?v=20260605145500"></script>
-<script src="js/ship.js?v=20260605145500"></script>
-<script src="js/bullets.js?v=20260605145500"></script>
-<script src="js/update.js?v=20260605145500"></script>
-<script src="js/collision.js?v=20260605145500"></script>
-<script src="js/render.js?v=20260605145500"></script>
-<script src="js/gamepad.js?v=20260605145500"></script>
-<script src="js/game.js?v=20260605145500"></script>
-
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>

@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Paper confetti">
+  <defs>
+    <filter id="paper-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#000" flood-opacity=".14"/>
+    </filter>
+  </defs>
+  <g filter="url(#paper-shadow)" stroke="#fff" stroke-width="42" stroke-linejoin="round">
+    <path d="M231 230 352 210 337 332z" fill="#f06f73"/>
+    <rect x="456" y="160" width="102" height="102" rx="18" fill="#65b8d0" transform="rotate(17 507 211)"/>
+    <path d="M721 221 828 292 720 358z" fill="#f4ce55"/>
+    <rect x="211" y="488" width="116" height="92" rx="18" fill="#7bc47f" transform="rotate(-20 269 534)"/>
+    <path d="M471 451 594 501 494 589z" fill="#ef8ab2"/>
+    <rect x="704" y="497" width="106" height="106" rx="18" fill="#f08a3f" transform="rotate(25 757 550)"/>
+    <path d="M302 750 428 689 411 829z" fill="#6f85d9"/>
+    <rect x="594" y="726" width="108" height="92" rx="18" fill="#6cc7a3" transform="rotate(-12 648 772)"/>
+  </g>
+  <g fill="none" stroke="#2e2117" stroke-width="18" stroke-linejoin="round">
+    <path d="M231 230 352 210 337 332z"/>
+    <rect x="456" y="160" width="102" height="102" rx="18" transform="rotate(17 507 211)"/>
+    <path d="M721 221 828 292 720 358z"/>
+    <rect x="211" y="488" width="116" height="92" rx="18" transform="rotate(-20 269 534)"/>
+    <path d="M471 451 594 501 494 589z"/>
+    <rect x="704" y="497" width="106" height="106" rx="18" transform="rotate(25 757 550)"/>
+    <path d="M302 750 428 689 411 829z"/>
+    <rect x="594" y="726" width="108" height="92" rx="18" transform="rotate(-12 648 772)"/>
+  </g>
+</svg>

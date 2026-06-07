@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" role="img" aria-label="Juice">
+  <path d="M49 42 L132 42 L122 155 L59 155Z" fill="#f58d54" stroke="#2e3d28" stroke-width="10"/>
+  <path d="M61 61 L120 61 L115 119 L66 119Z" fill="#ffe3a1" stroke="#2e3d28" stroke-width="7"/>
+  <path d="M107 42 C109 23 122 16 145 20" fill="none" stroke="#2e3d28" stroke-width="9" stroke-linecap="round"/>
+  <circle cx="90" cy="90" r="16" fill="#f58d54" stroke="#2e3d28" stroke-width="6"/>
+</svg>
