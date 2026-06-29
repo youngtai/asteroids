@@ -1,5 +1,6 @@
 import { createRootRoute, createRoute, createRouter, Link, Outlet } from '@tanstack/react-router';
 import { AsteroidsPage } from './pages/AsteroidsPage.jsx';
+import { LizardLunchPage } from './pages/LizardLunchPage.jsx';
 import { PortalPage } from './pages/PortalPage.jsx';
 import { StarCatcherPage } from './pages/StarCatcherPage.jsx';
 import { StickerBookPage } from './pages/StickerBookPage.jsx';
@@ -52,11 +53,18 @@ const stickerBookRoute = createRoute({
   component: StickerBookPage,
 });
 
+const lizardLunchRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/games/lizard-lunch',
+  component: LizardLunchPage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   asteroidsRoute,
   starCatcherRoute,
   stickerBookRoute,
+  lizardLunchRoute,
 ]);
 
 export const router = createRouter({ routeTree });

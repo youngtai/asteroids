@@ -29,4 +29,14 @@ export const games = [
     accent: 'mint',
     thumbnail: 'sticker-book',
   },
+  {
+    id: 'lizard-lunch',
+    title: 'Lizard Lunch',
+    path: '/games/lizard-lunch',
+    players: '1 player',
+    pace: 'Learn to type',
+    blurb: 'Type letters, numbers, and sight words to zap bugs with the lizard’s sticky tongue.',
+    accent: 'lime',
+    thumbnail: 'lizard-lunch',
+  },
 ];
