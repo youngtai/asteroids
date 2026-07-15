@@ -1107,6 +1107,16 @@ a {
   color: #ffc5d3;
 }
 
+.immune-hud__stats .immune-hud__tissue {
+  border-color: var(--tissue-health-color);
+  box-shadow: inset 0 -3px 0 var(--tissue-health-color);
+}
+
+.immune-hud__stats .immune-hud__critical {
+  border-color: rgba(255, 106, 77, 0.62);
+  color: #ffb197;
+}
+
 .immune-response-track {
   width: min(460px, 100%);
   height: 6px;

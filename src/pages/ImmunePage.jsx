@@ -5,7 +5,7 @@ import { createImmuneSoundEngine } from '../lib/immuneAudio.js';
 
 const TAU = Math.PI * 2;
 const ROUND_TIME = 52;
-const MAX_BACTERIA = 72;
+const MAX_BACTERIA = 96;
 const SNAPSHOT_INTERVAL = 100;
 const SOUND_PREFERENCE_KEY = 'immune-sound-muted';
 
@@ -60,9 +60,102 @@ function getArenaScale(width, height) {
   const shortSide = Math.min(width, height);
   const responsiveScale = clamp(Math.sqrt(shortSide / 720), 0.72, 1.08);
   return {
-    bacteriaScale: clamp(0.54, 0.76 * responsiveScale, 0.84),
-    cellScale: clamp(0.64, 0.84 * responsiveScale, 0.92),
+    bacteriaScale: clamp(0.48, 0.68 * responsiveScale, 0.76),
+    cellScale: clamp(0.56, 0.75 * responsiveScale, 0.84),
   };
+}
+
+const TISSUE_COLORS = [
+  { at: 0, value: [74, 58, 82] },
+  { at: 0.3, value: [255, 106, 77] },
+  { at: 0.62, value: [255, 207, 90] },
+  { at: 1, value: [63, 216, 192] },
+];
+
+function tissueHealthColor(health, alpha = 1) {
+  const value = clamp(health, 0, 1);
+  let lower = TISSUE_COLORS[0];
+  let upper = TISSUE_COLORS[TISSUE_COLORS.length - 1];
+  for (let index = 1; index < TISSUE_COLORS.length; index += 1) {
+    if (value <= TISSUE_COLORS[index].at) {
+      upper = TISSUE_COLORS[index];
+      lower = TISSUE_COLORS[index - 1];
+      break;
+    }
+  }
+  const progress = clamp((value - lower.at) / Math.max(0.001, upper.at - lower.at), 0, 1);
+  const rgb = lower.value.map((channel, index) =>
+    Math.round(channel + (upper.value[index] - channel) * progress)
+  );
+  return `rgba(${rgb.join(', ')}, ${alpha})`;
+}
+
+function makeTissue(width, height, previous = null) {
+  const top = 76;
+  const patchSize = clamp(Math.min(width, height) * 0.072, 48, 56);
+  const columns = Math.max(1, Math.ceil(width / patchSize));
+  const rows = Math.max(1, Math.ceil((height - top) / patchSize));
+  const health = new Float32Array(columns * rows);
+  const danger = new Float32Array(columns * rows);
+  health.fill(1);
+
+  if (previous) {
+    for (let row = 0; row < rows; row += 1) {
+      for (let column = 0; column < columns; column += 1) {
+        const previousColumn = clamp(
+          Math.floor(((column + 0.5) / columns) * previous.columns),
+          0,
+          previous.columns - 1
+        );
+        const previousRow = clamp(
+          Math.floor(((row + 0.5) / rows) * previous.rows),
+          0,
+          previous.rows - 1
+        );
+        const previousIndex = previousRow * previous.columns + previousColumn;
+        const index = row * columns + column;
+        health[index] = previous.health[previousIndex];
+        danger[index] = previous.danger[previousIndex];
+      }
+    }
+  }
+
+  return {
+    top,
+    columns,
+    rows,
+    cellWidth: width / columns,
+    cellHeight: Math.max(1, height - top) / rows,
+    health,
+    danger,
+  };
+}
+
+function tissueIndexAt(game, x, y) {
+  const tissue = game.tissue;
+  const column = clamp(Math.floor((x / game.width) * tissue.columns), 0, tissue.columns - 1);
+  const row = clamp(
+    Math.floor(((y - tissue.top) / Math.max(1, game.height - tissue.top)) * tissue.rows),
+    0,
+    tissue.rows - 1
+  );
+  return row * tissue.columns + column;
+}
+
+function damageTissueArea(game, x, y, radius, amount) {
+  const tissue = game.tissue;
+  for (let row = 0; row < tissue.rows; row += 1) {
+    for (let column = 0; column < tissue.columns; column += 1) {
+      const index = row * tissue.columns + column;
+      const centerX = (column + 0.5) * tissue.cellWidth;
+      const centerY = tissue.top + (row + 0.5) * tissue.cellHeight;
+      const distanceFromDamage = Math.hypot(centerX - x, centerY - y);
+      if (distanceFromDamage > radius) continue;
+      const falloff = 1 - distanceFromDamage / radius;
+      tissue.health[index] = Math.max(0, tissue.health[index] - amount * falloff);
+      tissue.danger[index] = Math.max(tissue.danger[index], 0.85 * falloff);
+    }
+  }
 }
 
 function readSoundPreference() {
@@ -91,11 +184,15 @@ function makeBacterium(game, x, y, generation = 0) {
     marked: 0,
     clumped: 0,
     dividing: 0,
+    hunter: Math.random() < 0.28,
+    hostTargetId: null,
+    latchedTo: null,
+    corroding: false,
     dead: false,
   };
 }
 
-function spawnInitialBacteria(game, count = 20) {
+function spawnInitialBacteria(game, count = 26) {
   for (let index = 0; index < count; index += 1) {
     const angle = Math.random() * TAU;
     const radius = randomBetween(24, 118);
@@ -194,6 +291,138 @@ function makeDefender(game, role, index, isPlayer) {
   };
 }
 
+function makeHostCell(game) {
+  const direction = Math.random() < 0.5 ? 1 : -1;
+  const margin = 34;
+  const baseY = randomBetween(112, Math.max(132, game.height - 58));
+  return {
+    id: game.nextId++,
+    x: direction > 0 ? -margin : game.width + margin,
+    y: baseY,
+    baseY,
+    direction,
+    speed: randomBetween(24, 36),
+    phase: Math.random() * TAU,
+    health: 1,
+    attackerId: null,
+    rescued: 0,
+    dying: 0,
+    dead: false,
+  };
+}
+
+function releaseHostCell(game, bacterium, rescued = false) {
+  if (!bacterium?.latchedTo) return;
+  const hostCell = game.hostCells.find((cell) => cell.id === bacterium.latchedTo);
+  bacterium.latchedTo = null;
+  bacterium.hostTargetId = null;
+  const escapeAngle = Math.random() * TAU;
+  bacterium.vx = Math.cos(escapeAngle) * randomBetween(26, 44);
+  bacterium.vy = Math.sin(escapeAngle) * randomBetween(26, 44);
+  if (!hostCell || hostCell.dying > 0) return;
+  hostCell.attackerId = null;
+  if (!rescued) return;
+  hostCell.health = Math.max(0.58, hostCell.health);
+  hostCell.rescued = game.reducedMotion ? 0.4 : 0.9;
+  game.hostCellsSaved += 1;
+  playGameSound(game, 'cellRescue');
+  addParticles(game, hostCell.x, hostCell.y, '#8fffdc', 10, 82);
+  game.effects.push({
+    type: 'cell-rescue',
+    x: hostCell.x,
+    y: hostCell.y,
+    color: '#8fffdc',
+    life: hostCell.rescued,
+    maxLife: hostCell.rescued,
+  });
+  setMessage(game, 'Host cell rescued — the attacker is gone', 2.1);
+}
+
+function updateHostCells(game, dt) {
+  const maximum = game.width < 700 ? 3 : 5;
+  game.nextHostCell -= dt;
+  if (game.nextHostCell <= 0 && game.hostCells.length < maximum) {
+    game.hostCells.push(makeHostCell(game));
+    game.nextHostCell = randomBetween(2.8, 4.2);
+  }
+
+  for (const hostCell of game.hostCells) {
+    hostCell.phase += dt * 2.3;
+    hostCell.rescued = Math.max(0, hostCell.rescued - dt);
+    if (hostCell.dead) {
+      hostCell.dying = Math.max(0, hostCell.dying - dt);
+      continue;
+    }
+
+    hostCell.x += hostCell.direction * hostCell.speed * dt;
+    hostCell.y = hostCell.baseY + (game.reducedMotion ? 0 : Math.sin(hostCell.phase) * 7);
+    if (!hostCell.attackerId) {
+      hostCell.health = Math.min(1, hostCell.health + dt * 0.035);
+      continue;
+    }
+
+    const attacker = game.bacteria.find(
+      (bacterium) => bacterium.id === hostCell.attackerId && !bacterium.dead
+    );
+    if (!attacker) {
+      hostCell.attackerId = null;
+      continue;
+    }
+    hostCell.health = Math.max(0, hostCell.health - dt / 3.8);
+    if (hostCell.health > 0) continue;
+
+    hostCell.dead = true;
+    hostCell.dying = game.reducedMotion ? 0.25 : 0.58;
+    game.hostCellsLost += 1;
+    playGameSound(game, 'cellPop');
+    addParticles(game, hostCell.x, hostCell.y, '#ff8066', 14, 96);
+    damageTissueArea(game, hostCell.x, hostCell.y, 78, 0.075);
+    releaseHostCell(game, attacker, false);
+    setMessage(game, 'Bacterial toxins ruptured a passing host cell', 2.5);
+  }
+
+  game.hostCells = game.hostCells.filter(
+    (hostCell) =>
+      (hostCell.dead && hostCell.dying > 0) ||
+      (!hostCell.dead && (hostCell.direction > 0 ? hostCell.x < game.width + 46 : hostCell.x > -46))
+  );
+}
+
+function updateTissue(game, dt) {
+  const tissue = game.tissue;
+  for (let index = 0; index < tissue.danger.length; index += 1) {
+    tissue.danger[index] = Math.max(0, tissue.danger[index] - dt * 0.7);
+  }
+
+  for (const bacterium of game.bacteria) {
+    bacterium.corroding = false;
+    if (bacterium.dead || bacterium.latchedTo) continue;
+    const index = tissueIndexAt(game, bacterium.x, bacterium.y);
+    const nearBreach = distance(bacterium, game.breach) < 92;
+    const responsiveDamageScale = tissue.health.length / 350;
+    const damageRate = (game.phase === 'adaptive' ? 0.035 : 0.135) * responsiveDamageScale;
+    tissue.health[index] = Math.max(
+      0,
+      tissue.health[index] - damageRate * (nearBreach ? 1.28 : 1) * dt
+    );
+    tissue.danger[index] = Math.max(tissue.danger[index], nearBreach ? 1 : 0.74);
+    bacterium.corroding = true;
+  }
+
+  let totalHealth = 0;
+  let criticalPatches = 0;
+  for (const health of tissue.health) {
+    totalHealth += health;
+    if (health < 0.32) criticalPatches += 1;
+  }
+  game.integrity = (totalHealth / tissue.health.length) * 100;
+  game.criticalTissue = criticalPatches;
+  if (!game.tissueAlerted && tissue.health.some((health) => health < 0.68)) {
+    game.tissueAlerted = true;
+    setMessage(game, 'Bacteria are poisoning the surrounding tissue', 2.7);
+  }
+}
+
 function makeGame(width, height, config) {
   const arenaScale = getArenaScale(width, height);
   const game = {
@@ -205,7 +434,11 @@ function makeGame(width, height, config) {
     elapsed: 0,
     timeLeft: ROUND_TIME,
     integrity: 100,
+    tissue: makeTissue(width, height),
+    criticalTissue: 0,
+    tissueAlerted: false,
     bacteria: [],
+    hostCells: [],
     defenders: [],
     projectiles: [],
     effects: [],
@@ -213,6 +446,7 @@ function makeGame(width, height, config) {
     nextId: 1,
     nextDivision: 5.4,
     nextIngress: 4.2,
+    nextHostCell: 6.5,
     nextAntibody: 0,
     nextComplement: 1.4,
     lastSnapshot: 0,
@@ -220,6 +454,9 @@ function makeGame(width, height, config) {
     antibodyHits: 0,
     totalDestroyed: 0,
     incomingCount: 0,
+    hostCellsSaved: 0,
+    hostCellsLost: 0,
+    hostAttackAlerted: false,
     earlyClear: false,
     sound: config.sound ?? null,
     integrityWarnings: new Set(),
@@ -285,6 +522,7 @@ function addParticles(game, x, y, color, count = 10, speed = 130) {
 
 function destroyBacterium(game, bacterium, source, style = 'burst') {
   if (!bacterium || bacterium.dead) return;
+  releaseHostCell(game, bacterium, true);
   bacterium.dead = true;
   game.totalDestroyed += 1;
   if (source?.isPlayer && game.phase === 'innate') {
@@ -435,6 +673,7 @@ function fireSpecial(game, defender) {
       maxLife: 2.8,
       hit: new Set(),
     });
+    damageTissueArea(game, defender.x, defender.y, 205, 0.018);
     setMessage(game, `${defender.label} explodes into a DNA net`);
     return;
   }
@@ -687,6 +926,8 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
     cell.y = clamp(cell.y, 78, game.height - 30);
   }
 
+  updateHostCells(game, dt);
+
   for (const bacterium of game.bacteria) {
     bacterium.hit = Math.max(0, bacterium.hit - dt);
     bacterium.marked = Math.max(0, bacterium.marked - dt);
@@ -694,6 +935,57 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
     bacterium.dividing = Math.max(0, bacterium.dividing - dt);
     bacterium.wiggle += dt * 7;
     if (bacterium.dead) continue;
+
+    if (bacterium.latchedTo) {
+      const hostCell = game.hostCells.find(
+        (cell) => cell.id === bacterium.latchedTo && cell.dying <= 0
+      );
+      if (hostCell) {
+        const latchSide = bacterium.id % 2 === 0 ? 1 : -1;
+        bacterium.x = hostCell.x + latchSide * 18 * game.cellScale;
+        bacterium.y = hostCell.y + Math.sin(bacterium.wiggle) * 8 * game.cellScale;
+        bacterium.angle = Math.atan2(hostCell.y - bacterium.y, hostCell.x - bacterium.x);
+        continue;
+      }
+      releaseHostCell(game, bacterium, false);
+    }
+
+    let hostTarget = null;
+    if (bacterium.hunter && bacterium.clumped <= 0) {
+      hostTarget = game.hostCells.find(
+        (cell) => cell.id === bacterium.hostTargetId && cell.dying <= 0 && !cell.attackerId
+      );
+      if (!hostTarget) {
+        hostTarget = game.hostCells
+          .filter((cell) => cell.dying <= 0 && !cell.attackerId)
+          .map((cell) => ({ cell, distance: distance(bacterium, cell) }))
+          .filter((candidate) => candidate.distance < 190)
+          .sort((a, b) => a.distance - b.distance)[0]?.cell;
+        bacterium.hostTargetId = hostTarget?.id ?? null;
+      }
+    }
+
+    if (hostTarget) {
+      const dx = hostTarget.x - bacterium.x;
+      const dy = hostTarget.y - bacterium.y;
+      const targetDistance = Math.hypot(dx, dy) || 1;
+      if (targetDistance < 23 * game.cellScale + 10) {
+        bacterium.latchedTo = hostTarget.id;
+        hostTarget.attackerId = bacterium.id;
+        if (!game.hostAttackAlerted) {
+          game.hostAttackAlerted = true;
+          playGameSound(game, 'cellAlert');
+          setMessage(game, 'A passing host cell is under bacterial attack!', 2.8);
+        }
+        continue;
+      }
+      const chaseSpeed = 56;
+      const steer = Math.min(1, dt * 3.4);
+      bacterium.vx += ((dx / targetDistance) * chaseSpeed - bacterium.vx) * steer;
+      bacterium.vy += ((dy / targetDistance) * chaseSpeed - bacterium.vy) * steer;
+      bacterium.angle = Math.atan2(dy, dx);
+    }
+
     const speedFactor = bacterium.clumped > 0 ? 0.1 : bacterium.marked > 0 ? 0.62 : 1;
     bacterium.x += bacterium.vx * dt * speedFactor;
     bacterium.y += bacterium.vy * dt * speedFactor;
@@ -703,17 +995,7 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
     bacterium.y = clamp(bacterium.y, 78, game.height - 22);
   }
 
-  const livingCount = game.bacteria.filter((bacterium) => !bacterium.dead).length;
-  if (livingCount > 0) {
-    const pressureRamp = 1 + game.elapsed / 45;
-    const pressure =
-      Math.max(0, livingCount - 5) * (game.phase === 'adaptive' ? 0.028 : 0.18) * pressureRamp;
-    const breachAttackers = game.bacteria.filter(
-      (bacterium) => !bacterium.dead && distance(bacterium, game.breach) < 82
-    ).length;
-    const breachDamage = breachAttackers * (game.phase === 'adaptive' ? 0.025 : 0.15);
-    game.integrity = Math.max(0, game.integrity - (pressure + breachDamage) * dt);
-  }
+  updateTissue(game, dt);
   for (const threshold of [70, 35]) {
     if (game.integrity <= threshold && !game.integrityWarnings.has(threshold)) {
       game.integrityWarnings.add(threshold);
@@ -791,6 +1073,68 @@ function roundedRect(ctx, x, y, width, height, radius) {
   ctx.closePath();
 }
 
+function drawTissue(ctx, game) {
+  const tissue = game.tissue;
+  const baseRadius = Math.min(tissue.cellWidth, tissue.cellHeight) * 0.43;
+  for (let row = 0; row < tissue.rows; row += 1) {
+    for (let column = 0; column < tissue.columns; column += 1) {
+      const index = row * tissue.columns + column;
+      const health = tissue.health[index];
+      const danger = tissue.danger[index];
+      const seed = index * 12.9898;
+      const offsetX = Math.sin(seed) * tissue.cellWidth * 0.08;
+      const offsetY = Math.cos(seed * 1.7) * tissue.cellHeight * 0.08;
+      const x = (column + 0.5) * tissue.cellWidth + offsetX;
+      const y = tissue.top + (row + 0.5) * tissue.cellHeight + offsetY;
+      const damagedScale = 0.82 + health * 0.18;
+      const pulse =
+        danger > 0 && !game.reducedMotion
+          ? 1 + Math.sin(game.elapsed * 5 + index) * 0.045 * danger
+          : 1;
+
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(Math.sin(seed * 0.3) * 0.22);
+      ctx.scale(pulse * damagedScale, pulse * damagedScale);
+      ctx.fillStyle = tissueHealthColor(health, 0.13 + danger * 0.14 + (1 - health) * 0.12);
+      ctx.strokeStyle = tissueHealthColor(health, 0.3 + danger * 0.42);
+      ctx.lineWidth = danger > 0.2 ? 2.2 : 1.2;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, baseRadius * 1.08, baseRadius * 0.86, 0, 0, TAU);
+      ctx.fill();
+      ctx.stroke();
+
+      if (health < 0.66) {
+        ctx.strokeStyle = health < 0.3 ? 'rgba(57, 29, 53, 0.9)' : 'rgba(91, 48, 63, 0.68)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(-baseRadius * 0.62, -baseRadius * 0.16);
+        ctx.lineTo(-baseRadius * 0.18, baseRadius * 0.02);
+        ctx.lineTo(baseRadius * 0.04, baseRadius * 0.48);
+        ctx.moveTo(-baseRadius * 0.18, baseRadius * 0.02);
+        ctx.lineTo(baseRadius * 0.42, -baseRadius * 0.32);
+        ctx.stroke();
+      }
+      if (health < 0.25) {
+        ctx.fillStyle = 'rgba(33, 24, 46, 0.7)';
+        for (let dot = 0; dot < 4; dot += 1) {
+          const angle = (dot / 4) * TAU + seed;
+          ctx.beginPath();
+          ctx.arc(
+            Math.cos(angle) * baseRadius * 0.5,
+            Math.sin(angle) * baseRadius * 0.4,
+            2,
+            0,
+            TAU
+          );
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+  }
+}
+
 function drawBackground(ctx, game) {
   const gradient = ctx.createRadialGradient(
     game.breach.x,
@@ -805,21 +1149,7 @@ function drawBackground(ctx, game) {
   gradient.addColorStop(1, '#11182d');
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, game.width, game.height);
-
-  ctx.globalAlpha = 0.25;
-  for (let index = 0; index < 28; index += 1) {
-    const x = (index * 173 + 42) % game.width;
-    const y = 78 + ((index * 97 + 31) % Math.max(1, game.height - 90));
-    const radius = 28 + (index % 5) * 7;
-    ctx.fillStyle = index % 2 ? '#bd629d' : '#684f9c';
-    ctx.beginPath();
-    ctx.arc(x, y, radius, 0, TAU);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-  }
-  ctx.globalAlpha = 1;
+  drawTissue(ctx, game);
 
   const pulse = game.reducedMotion ? 1 : 1 + Math.sin(game.breach.pulse * 3) * 0.08;
   ctx.save();
@@ -849,6 +1179,75 @@ function drawBackground(ctx, game) {
     wash.addColorStop(1, 'rgba(255, 196, 99, 0.02)');
     ctx.fillStyle = wash;
     ctx.fillRect(0, 0, game.width, game.height);
+  }
+}
+
+function drawHostCell(ctx, hostCell, game) {
+  const health = clamp(hostCell.health, 0, 1);
+  const distress = 1 - health;
+  const dyingDuration = game.reducedMotion ? 0.25 : 0.58;
+  const dyingProgress = hostCell.dying > 0 ? 1 - hostCell.dying / dyingDuration : 0;
+  const wobble =
+    !game.reducedMotion && hostCell.attackerId
+      ? Math.sin(hostCell.phase * 7) * (0.04 + distress * 0.08)
+      : 0;
+  const scale = game.cellScale * (1 - distress * 0.2) * (1 - dyingProgress * 0.75);
+
+  ctx.save();
+  ctx.translate(hostCell.x, hostCell.y);
+  ctx.rotate(wobble);
+  ctx.scale(scale, scale);
+  ctx.globalAlpha = Math.max(0, 1 - dyingProgress);
+  ctx.shadowColor = tissueHealthColor(health);
+  ctx.shadowBlur = hostCell.rescued > 0 ? 18 : hostCell.attackerId ? 10 : 4;
+  ctx.fillStyle = tissueHealthColor(health);
+  ctx.strokeStyle = health < 0.3 ? '#4a3a52' : 'rgba(232, 255, 250, 0.8)';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 24, 20 - distress * 3, 0, 0, TAU);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = health < 0.3 ? '#3c2f4a' : '#24777a';
+  ctx.beginPath();
+  ctx.ellipse(-3, 1, 9, 7, 0.3, 0, TAU);
+  ctx.fill();
+  if (health < 0.62) {
+    ctx.fillStyle = '#fff0c2';
+    ctx.beginPath();
+    ctx.arc(17, -9, 4 + distress * 3, 0, TAU);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  if (hostCell.attackerId && hostCell.dying <= 0) {
+    const attacker = game.bacteria.find((bacterium) => bacterium.id === hostCell.attackerId);
+    if (attacker) {
+      ctx.save();
+      ctx.strokeStyle = tissueHealthColor(health, 0.9);
+      ctx.lineWidth = 2;
+      ctx.setLineDash([3, 5]);
+      ctx.beginPath();
+      ctx.moveTo(attacker.x, attacker.y);
+      ctx.lineTo(hostCell.x, hostCell.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+    ctx.save();
+    ctx.translate(hostCell.x, hostCell.y - 30 * game.cellScale - 8);
+    ctx.fillStyle = '#fff4d2';
+    ctx.strokeStyle = '#7a293e';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 10, 0, TAU);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#7a293e';
+    ctx.font = '900 14px Inter, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('!', 0, 1);
+    ctx.restore();
   }
 }
 
@@ -898,6 +1297,14 @@ function drawBacterium(ctx, bacterium, bacteriaScale) {
     ctx.beginPath();
     ctx.arc(0, -21, 4, 0, TAU);
     ctx.fill();
+  }
+  if (bacterium.corroding && !bacterium.latchedTo) {
+    ctx.fillStyle = '#ffcf5a';
+    for (let index = 0; index < 2; index += 1) {
+      ctx.beginPath();
+      ctx.arc(8 + index * 8, 15 + Math.sin(bacterium.wiggle + index) * 3, 2.4, 0, TAU);
+      ctx.fill();
+    }
   }
   ctx.restore();
 }
@@ -1322,6 +1729,7 @@ function drawEffects(ctx, game) {
 
 function drawGame(ctx, game) {
   drawBackground(ctx, game);
+  for (const hostCell of game.hostCells) drawHostCell(ctx, hostCell, game);
   for (const bacterium of game.bacteria) drawBacterium(ctx, bacterium, game.bacteriaScale);
   for (const cell of game.defenders) drawDefender(ctx, cell, game.cellScale);
   drawEffects(ctx, game);
@@ -1350,6 +1758,9 @@ function snapshotFromGame(game) {
     message: game.messageTime > 0 ? game.message : '',
     earlyClear: game.earlyClear,
     antibodyHits: game.antibodyHits,
+    hostCellsSaved: game.hostCellsSaved,
+    hostCellsLost: game.hostCellsLost,
+    criticalTissue: game.criticalTissue,
   };
 }
 
@@ -1365,6 +1776,9 @@ const INITIAL_SNAPSHOT = {
   message: '',
   earlyClear: false,
   antibodyHits: 0,
+  hostCellsSaved: 0,
+  hostCellsLost: 0,
+  criticalTissue: 0,
 };
 
 export function ImmunePage() {
@@ -1462,6 +1876,7 @@ export function ImmunePage() {
         const game = gameRef.current;
         const previousWidth = game.width || width;
         const previousHeight = game.height || height;
+        const previousTissue = game.tissue;
         const scaleX = width / previousWidth;
         const scaleY = height / previousHeight;
         const arenaScale = getArenaScale(width, height);
@@ -1471,9 +1886,15 @@ export function ImmunePage() {
         game.cellScale = arenaScale.cellScale;
         game.breach.x = width * 0.5;
         game.breach.y = height * 0.47;
+        game.tissue = makeTissue(width, height, previousTissue);
         for (const entity of [...game.bacteria, ...game.defenders]) {
           entity.x = clamp(entity.x * scaleX, 24, width - 24);
           entity.y = clamp(entity.y * scaleY, 78, height - 24);
+        }
+        for (const hostCell of game.hostCells) {
+          hostCell.x *= scaleX;
+          hostCell.baseY = clamp(hostCell.baseY * scaleY, 100, height - 44);
+          hostCell.y = clamp(hostCell.y * scaleY, 78, height - 24);
         }
       } else {
         previewRef.current = null;
@@ -1753,9 +2174,15 @@ export function ImmunePage() {
             <span>
               <b>{snapshot.bacteria}</b> bacteria
             </span>
-            <span>
+            <span
+              className="immune-hud__tissue"
+              style={{ '--tissue-health-color': tissueHealthColor(snapshot.integrity / 100) }}
+            >
               <b>{snapshot.integrity}%</b> tissue
             </span>
+            {snapshot.criticalTissue > 0 && (
+              <span className="immune-hud__critical">{snapshot.criticalTissue} critical zones</span>
+            )}
             {snapshot.phase === 'innate' && (
               <span className="immune-hud__division">Division in {snapshot.nextDivision}s</span>
             )}
@@ -1977,6 +2404,12 @@ export function ImmunePage() {
             </span>
             <span>
               <strong>{snapshot.antibodyHits}</strong> antibody hits
+            </span>
+            <span>
+              <strong>{snapshot.hostCellsSaved}</strong> cells saved
+            </span>
+            <span>
+              <strong>{snapshot.hostCellsLost}</strong> cells lost
             </span>
           </div>
           <div className="immune-result__actions">

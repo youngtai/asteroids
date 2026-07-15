@@ -4,6 +4,9 @@ const SOUND_COOLDOWNS = {
   signal: 110,
   division: 800,
   arrival: 600,
+  cellAlert: 1200,
+  cellRescue: 500,
+  cellPop: 900,
   rush: 300,
   net: 500,
   rally: 500,
@@ -133,6 +136,42 @@ export function createImmuneSoundEngine() {
         endFrequency: 165,
         duration: 0.2,
         volume: 0.11,
+        type: 'triangle',
+      });
+    } else if (name === 'cellAlert') {
+      tone({
+        startFrequency: 620,
+        endFrequency: 470,
+        duration: 0.13,
+        volume: 0.14,
+        type: 'square',
+      });
+      tone({
+        startFrequency: 620,
+        endFrequency: 430,
+        duration: 0.16,
+        volume: 0.12,
+        type: 'square',
+        delay: 0.18,
+      });
+    } else if (name === 'cellRescue') {
+      [520, 660, 880].forEach((frequency, index) => {
+        tone({
+          startFrequency: frequency,
+          endFrequency: frequency * 1.08,
+          duration: 0.18,
+          volume: 0.1,
+          type: 'sine',
+          delay: index * 0.055,
+        });
+      });
+    } else if (name === 'cellPop') {
+      noise({ duration: 0.16, volume: 0.075, frequency: 650 });
+      tone({
+        startFrequency: 230,
+        endFrequency: 92,
+        duration: 0.25,
+        volume: 0.13,
         type: 'triangle',
       });
     } else if (name === 'rush') {
