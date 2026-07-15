@@ -56,6 +56,15 @@ function cycleRole(role, direction) {
   return ROLE_KEYS[(index + direction + ROLE_KEYS.length) % ROLE_KEYS.length];
 }
 
+function getArenaScale(width, height) {
+  const shortSide = Math.min(width, height);
+  const responsiveScale = clamp(Math.sqrt(shortSide / 720), 0.72, 1.08);
+  return {
+    bacteriaScale: clamp(0.54, 0.76 * responsiveScale, 0.84),
+    cellScale: clamp(0.64, 0.84 * responsiveScale, 0.92),
+  };
+}
+
 function readSoundPreference() {
   try {
     return window.localStorage.getItem(SOUND_PREFERENCE_KEY) === 'true';
@@ -127,11 +136,13 @@ function makeDefender(game, role, index, isPlayer) {
 }
 
 function makeGame(width, height, config) {
+  const arenaScale = getArenaScale(width, height);
   const game = {
     mode: 'playing',
     phase: 'innate',
     width,
     height,
+    ...arenaScale,
     elapsed: 0,
     timeLeft: ROUND_TIME,
     integrity: 100,
@@ -770,12 +781,12 @@ function drawBackground(ctx, game) {
   }
 }
 
-function drawBacterium(ctx, bacterium) {
+function drawBacterium(ctx, bacterium, bacteriaScale) {
   ctx.save();
   ctx.translate(bacterium.x, bacterium.y);
   ctx.rotate(bacterium.angle + Math.sin(bacterium.wiggle) * 0.08);
   const split = bacterium.dividing > 0 ? 1 + Math.sin(bacterium.dividing * 10) * 0.25 : 1;
-  ctx.scale(split, 1 / split);
+  ctx.scale(split * bacteriaScale, bacteriaScale / split);
   if (bacterium.clumped > 0) {
     ctx.shadowColor = '#fff2a6';
     ctx.shadowBlur = 18;
@@ -936,10 +947,11 @@ function drawHelper(ctx, color) {
   ctx.fill();
 }
 
-function drawDefender(ctx, cell) {
+function drawDefender(ctx, cell, cellScale) {
   ctx.save();
   ctx.translate(cell.x, cell.y);
   ctx.rotate(cell.facing);
+  ctx.scale(cellScale, cellScale);
   const roleColor = ROLES[cell.role].color;
   ctx.globalAlpha = cell.fatigued > 0 ? 0.5 : 1;
   ctx.shadowColor = cell.rage > 0 ? '#ffffff' : roleColor;
@@ -953,19 +965,20 @@ function drawDefender(ctx, cell) {
   ctx.translate(cell.x, cell.y);
   if (cell.isPlayer) {
     ctx.strokeStyle = PLAYER_COLORS[cell.playerIndex];
-    ctx.lineWidth = 3;
+    ctx.lineWidth = Math.max(2, 3 * cellScale);
     ctx.setLineDash([5, 4]);
     ctx.beginPath();
-    ctx.arc(0, 0, 38, 0, TAU);
+    ctx.arc(0, 0, 34 * cellScale + 4, 0, TAU);
     ctx.stroke();
     ctx.setLineDash([]);
   }
-  ctx.font = '700 12px Inter, system-ui, sans-serif';
+  const labelSize = Math.round(clamp(10, 12 * cellScale + 2, 12));
+  ctx.font = `700 ${labelSize}px Inter, system-ui, sans-serif`;
   ctx.textAlign = 'center';
   ctx.fillStyle = '#ffffff';
   ctx.shadowColor = '#11182d';
   ctx.shadowBlur = 5;
-  ctx.fillText(cell.label, 0, -42);
+  ctx.fillText(cell.label, 0, -(36 * cellScale + 9));
   ctx.restore();
 }
 
@@ -987,12 +1000,13 @@ function drawAntibody(ctx, x, y, scale = 1) {
 }
 
 function drawEffects(ctx, game) {
+  const { bacteriaScale, cellScale } = game;
   for (const projectile of game.projectiles) {
     ctx.fillStyle = projectile.color;
     ctx.shadowColor = projectile.color;
-    ctx.shadowBlur = 10;
+    ctx.shadowBlur = 10 * bacteriaScale;
     ctx.beginPath();
-    ctx.arc(projectile.x, projectile.y, 5, 0, TAU);
+    ctx.arc(projectile.x, projectile.y, Math.max(3, 5 * bacteriaScale), 0, TAU);
     ctx.fill();
   }
   ctx.shadowBlur = 0;
@@ -1014,15 +1028,15 @@ function drawEffects(ctx, game) {
           ctx,
           effect.x,
           effect.y,
-          1 - progress * 0.35,
+          bacteriaScale * (1 - progress * 0.35),
           effect.bacteriumAngle,
           1 - progress,
           effect.armored
         );
         ctx.strokeStyle = effect.color;
-        ctx.lineWidth = 5 * (1 - progress) + 2;
+        ctx.lineWidth = Math.max(2, (5 * (1 - progress) + 2) * cellScale);
         ctx.beginPath();
-        ctx.arc(sourceX, sourceY, 18 + progress * 18, 0, TAU);
+        ctx.arc(sourceX, sourceY, (18 + progress * 18) * cellScale, 0, TAU);
         ctx.stroke();
       } else {
         const smooth = (value) => value * value * (3 - 2 * value);
@@ -1036,8 +1050,8 @@ function drawEffects(ctx, game) {
         const uy = dy / length;
         const nx = -uy;
         const ny = ux;
-        const swallowedX = sourceX + ux * 5;
-        const swallowedY = sourceY + uy * 5;
+        const swallowedX = sourceX + ux * 5 * cellScale;
+        const swallowedY = sourceY + uy * 5 * cellScale;
         const bacteriumX = effect.x + (swallowedX - effect.x) * pull;
         const bacteriumY = effect.y + (swallowedY - effect.y) * pull;
 
@@ -1045,25 +1059,26 @@ function drawEffects(ctx, game) {
         ctx.globalAlpha *= 1 - digest;
         ctx.lineCap = 'round';
         for (const side of [-1, 0, 1]) {
-          const startX = sourceX + ux * 10 + nx * side * 12;
-          const startY = sourceY + uy * 10 + ny * side * 12;
-          const spread = side * (18 - pull * 8);
-          const targetX = bacteriumX - ux * (8 + pull * 5) + nx * spread;
-          const targetY = bacteriumY - uy * (8 + pull * 5) + ny * spread;
+          const startX = sourceX + ux * 10 * cellScale + nx * side * 12 * cellScale;
+          const startY = sourceY + uy * 10 * cellScale + ny * side * 12 * cellScale;
+          const spread = side * (18 - pull * 8) * bacteriaScale;
+          const targetX = bacteriumX - ux * (8 + pull * 5) * bacteriaScale + nx * spread;
+          const targetY = bacteriumY - uy * (8 + pull * 5) * bacteriaScale + ny * spread;
           const tipX = startX + (targetX - startX) * reach;
           const tipY = startY + (targetY - startY) * reach;
-          const curve = side * 14 + Math.sin(progress * Math.PI) * (side === 0 ? 18 : 7);
+          const curve =
+            (side * 14 + Math.sin(progress * Math.PI) * (side === 0 ? 18 : 7)) * cellScale;
           const controlX = (startX + tipX) / 2 + nx * curve;
           const controlY = (startY + tipY) / 2 + ny * curve;
 
           ctx.strokeStyle = 'rgba(18, 93, 139, 0.6)';
-          ctx.lineWidth = 13 - pull * 3;
+          ctx.lineWidth = Math.max(4, (13 - pull * 3) * cellScale);
           ctx.beginPath();
           ctx.moveTo(startX, startY);
           ctx.quadraticCurveTo(controlX, controlY, tipX, tipY);
           ctx.stroke();
           ctx.strokeStyle = effect.color;
-          ctx.lineWidth = 8 - pull * 2;
+          ctx.lineWidth = Math.max(3, (8 - pull * 2) * cellScale);
           ctx.beginPath();
           ctx.moveTo(startX, startY);
           ctx.quadraticCurveTo(controlX, controlY, tipX, tipY);
@@ -1072,9 +1087,9 @@ function drawEffects(ctx, game) {
         ctx.restore();
 
         const membraneClose = smooth(clamp((progress - 0.08) / 0.48, 0, 1));
-        const vesicleRadius = 30 - pull * 9 - digest * 7;
+        const vesicleRadius = (30 - pull * 9 - digest * 7) * bacteriaScale;
         ctx.strokeStyle = 'rgba(204, 247, 255, 0.92)';
-        ctx.lineWidth = 4 - digest * 1.5;
+        ctx.lineWidth = Math.max(2, (4 - digest * 1.5) * bacteriaScale);
         ctx.beginPath();
         ctx.arc(
           bacteriumX,
@@ -1085,12 +1100,12 @@ function drawEffects(ctx, game) {
         );
         ctx.stroke();
         ctx.strokeStyle = effect.color;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = Math.max(1.5, 2 * bacteriaScale);
         ctx.beginPath();
-        ctx.arc(bacteriumX, bacteriumY, vesicleRadius - 4, 0, TAU);
+        ctx.arc(bacteriumX, bacteriumY, vesicleRadius - 4 * bacteriaScale, 0, TAU);
         ctx.stroke();
 
-        const bacteriumScale = (1 - pull * 0.58) * (1 - digest * 0.94);
+        const bacteriumScale = bacteriaScale * (1 - pull * 0.58) * (1 - digest * 0.94);
         drawCapturedBacterium(
           ctx,
           bacteriumX,
@@ -1104,13 +1119,13 @@ function drawEffects(ctx, game) {
         if (digest > 0) {
           for (let index = 0; index < 6; index += 1) {
             const angle = (index / 6) * TAU + digest * Math.PI * 2;
-            const radius = 15 * (1 - digest * 0.55);
+            const radius = 15 * bacteriaScale * (1 - digest * 0.55);
             ctx.fillStyle = index % 2 === 0 ? '#fff1a8' : '#9dffcf';
             ctx.beginPath();
             ctx.arc(
               swallowedX + Math.cos(angle) * radius,
               swallowedY + Math.sin(angle) * radius,
-              2.5 + digest * 1.5,
+              Math.max(1.5, (2.5 + digest * 1.5) * bacteriaScale),
               0,
               TAU
             );
@@ -1118,28 +1133,28 @@ function drawEffects(ctx, game) {
           }
           ctx.globalAlpha *= 1 - digest;
           ctx.strokeStyle = '#fff4ad';
-          ctx.lineWidth = 5 - digest * 3;
+          ctx.lineWidth = Math.max(1.5, (5 - digest * 3) * cellScale);
           ctx.beginPath();
-          ctx.arc(swallowedX, swallowedY, 20 + digest * 28, 0, TAU);
+          ctx.arc(swallowedX, swallowedY, (20 + digest * 28) * cellScale, 0, TAU);
           ctx.stroke();
         }
       }
     } else if (effect.type === 'pseudopod') {
       ctx.strokeStyle = effect.color;
-      ctx.lineWidth = 8;
+      ctx.lineWidth = Math.max(3, 8 * cellScale);
       ctx.lineCap = 'round';
       ctx.beginPath();
       ctx.moveTo(effect.fromX, effect.fromY);
       ctx.quadraticCurveTo(
-        (effect.fromX + effect.x) / 2 + Math.sin(progress * Math.PI) * 24,
-        (effect.fromY + effect.y) / 2 - 18,
+        (effect.fromX + effect.x) / 2 + Math.sin(progress * Math.PI) * 24 * cellScale,
+        (effect.fromY + effect.y) / 2 - 18 * cellScale,
         effect.x,
         effect.y
       );
       ctx.stroke();
     } else if (effect.type === 'signal') {
       ctx.strokeStyle = effect.color;
-      ctx.lineWidth = 3;
+      ctx.lineWidth = Math.max(2, 3 * cellScale);
       ctx.setLineDash([5, 6]);
       ctx.beginPath();
       ctx.moveTo(effect.fromX, effect.fromY);
@@ -1147,7 +1162,7 @@ function drawEffects(ctx, game) {
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.beginPath();
-      ctx.arc(effect.x, effect.y, 15 + progress * 25, 0, TAU);
+      ctx.arc(effect.x, effect.y, (15 + progress * 25) * bacteriaScale, 0, TAU);
       ctx.stroke();
     } else if (effect.type === 'rally') {
       ctx.strokeStyle = effect.color;
@@ -1177,7 +1192,7 @@ function drawEffects(ctx, game) {
     } else if (effect.type === 'antibody') {
       const x = effect.fromX + (effect.x - effect.fromX) * progress;
       const y = effect.fromY + (effect.y - effect.fromY) * progress;
-      drawAntibody(ctx, x, y, 1.1);
+      drawAntibody(ctx, x, y, 1.1 * bacteriaScale);
     } else if (effect.type === 'complement') {
       const x = effect.fromX + (effect.x - effect.fromX) * progress;
       const y = effect.fromY + (effect.y - effect.fromY) * progress;
@@ -1185,21 +1200,21 @@ function drawEffects(ctx, game) {
       ctx.shadowColor = effect.color;
       ctx.shadowBlur = 12;
       ctx.beginPath();
-      ctx.arc(x, y, 6, 0, TAU);
+      ctx.arc(x, y, Math.max(3, 6 * bacteriaScale), 0, TAU);
       ctx.fill();
       ctx.strokeStyle = '#eaffff';
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(effect.x, effect.y, 8 + progress * 15, 0, TAU);
+      ctx.arc(effect.x, effect.y, (8 + progress * 15) * bacteriaScale, 0, TAU);
       ctx.stroke();
     } else if (effect.type === 'flood' && !game.reducedMotion) {
       ctx.fillStyle = `rgba(255, 241, 168, ${0.24 * (1 - progress)})`;
       ctx.fillRect(0, 0, game.width, game.height);
     } else {
       ctx.strokeStyle = effect.color;
-      ctx.lineWidth = 4 * (1 - progress);
+      ctx.lineWidth = Math.max(1, 4 * (1 - progress) * bacteriaScale);
       ctx.beginPath();
-      ctx.arc(effect.x, effect.y, 8 + progress * 32, 0, TAU);
+      ctx.arc(effect.x, effect.y, (8 + progress * 32) * bacteriaScale, 0, TAU);
       ctx.stroke();
     }
     ctx.restore();
@@ -1210,7 +1225,7 @@ function drawEffects(ctx, game) {
     ctx.globalAlpha = clamp(particle.life / particle.maxLife, 0, 1);
     ctx.fillStyle = particle.color;
     ctx.beginPath();
-    ctx.arc(particle.x, particle.y, particle.radius, 0, TAU);
+    ctx.arc(particle.x, particle.y, Math.max(1.5, particle.radius * bacteriaScale), 0, TAU);
     ctx.fill();
     ctx.restore();
   }
@@ -1218,8 +1233,8 @@ function drawEffects(ctx, game) {
 
 function drawGame(ctx, game) {
   drawBackground(ctx, game);
-  for (const bacterium of game.bacteria) drawBacterium(ctx, bacterium);
-  for (const cell of game.defenders) drawDefender(ctx, cell);
+  for (const bacterium of game.bacteria) drawBacterium(ctx, bacterium, game.bacteriaScale);
+  for (const cell of game.defenders) drawDefender(ctx, cell, game.cellScale);
   drawEffects(ctx, game);
 }
 
@@ -1360,8 +1375,11 @@ export function ImmunePage() {
         const previousHeight = game.height || height;
         const scaleX = width / previousWidth;
         const scaleY = height / previousHeight;
+        const arenaScale = getArenaScale(width, height);
         game.width = width;
         game.height = height;
+        game.bacteriaScale = arenaScale.bacteriaScale;
+        game.cellScale = arenaScale.cellScale;
         game.breach.x = width * 0.5;
         game.breach.y = height * 0.47;
         for (const entity of [...game.bacteria, ...game.defenders]) {
