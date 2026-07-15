@@ -1,10 +1,13 @@
 import { Link } from '@tanstack/react-router';
+import { Volume2, VolumeX } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createImmuneSoundEngine } from '../lib/immuneAudio.js';
 
 const TAU = Math.PI * 2;
 const ROUND_TIME = 52;
 const MAX_BACTERIA = 72;
 const SNAPSHOT_INTERVAL = 100;
+const SOUND_PREFERENCE_KEY = 'immune-sound-muted';
 
 const ROLES = {
   macrophage: {
@@ -51,6 +54,14 @@ function randomBetween(min, max) {
 function cycleRole(role, direction) {
   const index = ROLE_KEYS.indexOf(role);
   return ROLE_KEYS[(index + direction + ROLE_KEYS.length) % ROLE_KEYS.length];
+}
+
+function readSoundPreference() {
+  try {
+    return window.localStorage.getItem(SOUND_PREFERENCE_KEY) === 'true';
+  } catch {
+    return false;
+  }
 }
 
 function makeBacterium(game, x, y, generation = 0) {
@@ -138,6 +149,8 @@ function makeGame(width, height, config) {
     antibodyHits: 0,
     totalDestroyed: 0,
     earlyClear: false,
+    sound: config.sound ?? null,
+    integrityWarnings: new Set(),
     breach: { x: width * 0.5, y: height * 0.47, pulse: 0 },
     message: 'Resident cells are holding the breach',
     messageTime: 2.8,
@@ -160,6 +173,10 @@ function makeGame(width, height, config) {
 function setMessage(game, message, time = 2.3) {
   game.message = message;
   game.messageTime = time;
+}
+
+function playGameSound(game, name) {
+  game.sound?.play(name);
 }
 
 function nearestBacterium(game, source, range = Number.POSITIVE_INFINITY) {
@@ -238,6 +255,7 @@ function firePrimary(game, defender) {
     defender.actionCd = defender.rage > 0 ? 0.3 : 0.58;
     if (target) {
       defender.facing = Math.atan2(target.y - defender.y, target.x - defender.x);
+      playGameSound(game, 'engulf');
       damageBacterium(game, target, defender.rage > 0 ? 1.5 : 1.05, defender, 'engulf');
       defender.exhaustion += 1;
       if (defender.exhaustion >= 5 && defender.rage <= 0) {
@@ -253,6 +271,7 @@ function firePrimary(game, defender) {
     const target = nearestBacterium(game, defender, 340);
     if (target) defender.facing = Math.atan2(target.y - defender.y, target.x - defender.x);
     defender.actionCd = 0.36;
+    playGameSound(game, 'shot');
     game.projectiles.push({
       x: defender.x + Math.cos(defender.facing) * 22,
       y: defender.y + Math.sin(defender.facing) * 22,
@@ -268,6 +287,7 @@ function firePrimary(game, defender) {
   defender.actionCd = 0.48;
   const target = nearestBacterium(game, defender, 250);
   if (target) {
+    playGameSound(game, 'signal');
     target.marked = Math.max(target.marked, 5.5);
     if (defender.isPlayer && game.phase === 'innate') {
       game.timeLeft = Math.max(0, game.timeLeft - 0.12);
@@ -303,6 +323,7 @@ function fireSpecial(game, defender) {
   defender.specialPulse = 0.8;
 
   if (defender.role === 'macrophage') {
+    playGameSound(game, 'rush');
     defender.specialCd = 9;
     defender.rage = 4.5;
     defender.exhaustion = 0;
@@ -329,6 +350,7 @@ function fireSpecial(game, defender) {
   }
 
   if (defender.role === 'neutrophil') {
+    playGameSound(game, 'net');
     defender.specialCd = 12;
     defender.fatigued = 1.25;
     game.effects.push({
@@ -345,6 +367,7 @@ function fireSpecial(game, defender) {
     return;
   }
 
+  playGameSound(game, 'rally');
   defender.specialCd = 8;
   game.effects.push({
     type: 'rally',
@@ -378,6 +401,7 @@ function divideBacteria(game) {
   if (living.length === 0) return;
   const count = Math.min(2 + Math.floor(game.elapsed / 18), 4, MAX_BACTERIA - living.length);
   const chosen = living.sort(() => Math.random() - 0.5).slice(0, count);
+  if (chosen.length > 0) playGameSound(game, 'division');
   for (const parent of chosen) {
     parent.dividing = 0.7;
     const angle = Math.random() * TAU;
@@ -394,6 +418,7 @@ function divideBacteria(game) {
 
 function beginAdaptiveResponse(game) {
   if (game.phase === 'adaptive') return;
+  playGameSound(game, 'adaptive');
   game.phase = 'adaptive';
   game.responseStartedAt = game.elapsed;
   game.nextAntibody = 0;
@@ -607,6 +632,12 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
     const breachDamage = breachAttackers * (game.phase === 'adaptive' ? 0.025 : 0.15);
     game.integrity = Math.max(0, game.integrity - (pressure + breachDamage) * dt);
   }
+  for (const threshold of [70, 35]) {
+    if (game.integrity <= threshold && !game.integrityWarnings.has(threshold)) {
+      game.integrityWarnings.add(threshold);
+      playGameSound(game, 'warning');
+    }
+  }
 
   for (const projectile of game.projectiles) {
     projectile.x += projectile.vx * dt;
@@ -652,9 +683,11 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
   game.bacteria = game.bacteria.filter((bacterium) => !bacterium.dead);
 
   if (game.integrity <= 0) {
+    playGameSound(game, 'lose');
     game.mode = 'lost';
     setMessage(game, 'The bacteria overwhelmed the tissue', 10);
   } else if (game.bacteria.length === 0) {
+    playGameSound(game, 'win');
     game.earlyClear = game.phase === 'innate';
     game.mode = 'won';
     setMessage(
@@ -1233,6 +1266,7 @@ const INITIAL_SNAPSHOT = {
 export function ImmunePage() {
   const canvasRef = useRef(null);
   const gameRef = useRef(null);
+  const soundRef = useRef(null);
   const previewRef = useRef(null);
   const snapshotModeRef = useRef('setup');
   const frameRef = useRef(0);
@@ -1245,6 +1279,14 @@ export function ImmunePage() {
   const configRef = useRef({ playerCount: 1, roles: ['macrophage', 'neutrophil'] });
   const [config, setConfig] = useState(configRef.current);
   const [snapshot, setSnapshot] = useState(INITIAL_SNAPSHOT);
+  const [soundMuted, setSoundMuted] = useState(readSoundPreference);
+  const soundMutedRef = useRef(soundMuted);
+
+  const ensureSound = useCallback(() => {
+    if (!soundRef.current) soundRef.current = createImmuneSoundEngine();
+    soundRef.current.setMuted(soundMutedRef.current);
+    return soundRef.current;
+  }, []);
 
   const updateConfig = useCallback((updater) => {
     setConfig((current) => {
@@ -1262,13 +1304,33 @@ export function ImmunePage() {
     touchInputRef.current = { x: 0, y: 0 };
     if (touchStickRef.current) touchStickRef.current.style.transform = 'translate(0px, 0px)';
     previewRef.current = null;
+    const sound = ensureSound();
+    sound.unlock();
     gameRef.current = makeGame(width, height, {
       ...configRef.current,
       reducedMotion: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches,
+      sound,
     });
     snapshotModeRef.current = gameRef.current.mode;
     setSnapshot(snapshotFromGame(gameRef.current));
-  }, []);
+  }, [ensureSound]);
+
+  const toggleSound = useCallback(() => {
+    const nextMuted = !soundMutedRef.current;
+    soundMutedRef.current = nextMuted;
+    setSoundMuted(nextMuted);
+    try {
+      window.localStorage.setItem(SOUND_PREFERENCE_KEY, String(nextMuted));
+    } catch {
+      // Sound still works when storage is unavailable.
+    }
+    const sound = ensureSound();
+    sound.setMuted(nextMuted);
+    if (!nextMuted) {
+      sound.unlock();
+      sound.play('toggle');
+    }
+  }, [ensureSound]);
 
   const returnToSetup = useCallback(() => {
     gameRef.current = null;
@@ -1487,6 +1549,13 @@ export function ImmunePage() {
     };
   }, [returnToSetup, startGame, updateConfig]);
 
+  useEffect(
+    () => () => {
+      soundRef.current?.destroy();
+    },
+    []
+  );
+
   const changeRole = (playerIndex, role) => {
     updateConfig((current) => {
       const roles = [...current.roles];
@@ -1551,6 +1620,16 @@ export function ImmunePage() {
           Games
         </Link>
         <span>Immune</span>
+        <button
+          aria-label={soundMuted ? 'Turn sound effects on' : 'Mute sound effects'}
+          aria-pressed={!soundMuted}
+          className={`immune-sound-toggle${soundMuted ? ' is-muted' : ''}`}
+          onClick={toggleSound}
+          title={soundMuted ? 'Turn sound effects on' : 'Mute sound effects'}
+          type="button"
+        >
+          {soundMuted ? <VolumeX aria-hidden="true" /> : <Volume2 aria-hidden="true" />}
+        </button>
       </nav>
 
       {snapshot.mode !== 'setup' && (
