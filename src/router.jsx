@@ -1,5 +1,6 @@
 import { createRootRoute, createRoute, createRouter, Link, Outlet } from '@tanstack/react-router';
 import { AsteroidsPage } from './pages/AsteroidsPage.jsx';
+import { ImmunePage } from './pages/ImmunePage.jsx';
 import { LizardLunchPage } from './pages/LizardLunchPage.jsx';
 import { PortalPage } from './pages/PortalPage.jsx';
 import { StarCatcherPage } from './pages/StarCatcherPage.jsx';
@@ -59,12 +60,19 @@ const lizardLunchRoute = createRoute({
   component: LizardLunchPage,
 });
 
+const immuneRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/games/immune',
+  component: ImmunePage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   asteroidsRoute,
   starCatcherRoute,
   stickerBookRoute,
   lizardLunchRoute,
+  immuneRoute,
 ]);
 
 export const router = createRouter({ routeTree });

@@ -1,5 +1,6 @@
 dist/
 node_modules/
 .wrangler/
+.codex/
 .DS_Store
 npm-debug.log*

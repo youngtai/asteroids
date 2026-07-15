@@ -39,4 +39,15 @@ export const games = [
     accent: 'lime',
     thumbnail: 'lizard-lunch',
   },
+  {
+    id: 'immune',
+    title: 'Immune',
+    path: '/games/immune',
+    players: '1-2 players',
+    pace: 'Co-op defense',
+    blurb:
+      'Choose an immune cell, command an AI squad, and contain a multiplying bacterial breach.',
+    accent: 'coral',
+    thumbnail: 'immune',
+  },
 ];

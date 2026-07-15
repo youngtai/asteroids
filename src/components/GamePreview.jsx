@@ -10,6 +10,10 @@ export function GamePreview({ type }) {
       <span className="preview-orbit" />
       <span className="preview-sticker preview-sticker--one" />
       <span className="preview-sticker preview-sticker--two" />
+      <span className="preview-immune-cell preview-immune-cell--one" />
+      <span className="preview-immune-cell preview-immune-cell--two" />
+      <span className="preview-bacterium preview-bacterium--one" />
+      <span className="preview-bacterium preview-bacterium--two" />
     </div>
   );
 }

@@ -19,6 +19,8 @@
   --mint-strong: #33d987;
   --lime: #a6ff7a;
   --lime-strong: #5fd93b;
+  --coral: #ff8ea5;
+  --coral-strong: #ff6688;
   --danger: #ff6f5f;
   --shadow: 0 22px 60px rgba(0, 0, 0, 0.35);
 }
@@ -168,6 +170,11 @@ a {
   --card-accent-strong: var(--lime-strong);
 }
 
+.game-card--coral {
+  --card-accent: var(--coral);
+  --card-accent-strong: var(--coral-strong);
+}
+
 .game-card__content {
   display: flex;
   flex-direction: column;
@@ -262,6 +269,12 @@ a {
 .preview-sticker {
   position: absolute;
   display: block;
+}
+
+.preview-immune-cell,
+.preview-bacterium {
+  position: absolute;
+  display: none;
 }
 
 .preview-star {
@@ -404,6 +417,87 @@ a {
 
 .game-preview--lizard-lunch .preview-star {
   background: var(--card-accent, var(--lime));
+}
+
+.game-preview--immune {
+  background:
+    radial-gradient(circle at 52% 52%, rgba(255, 109, 140, 0.34), transparent 33%),
+    linear-gradient(150deg, #45224f, #151832 72%);
+}
+
+.game-preview--immune .preview-ship,
+.game-preview--immune .preview-rock,
+.game-preview--immune .preview-orbit,
+.game-preview--immune .preview-sticker {
+  display: none;
+}
+
+.game-preview--immune .preview-immune-cell,
+.game-preview--immune .preview-bacterium {
+  display: block;
+}
+
+.preview-immune-cell {
+  border: 3px solid rgba(255, 255, 255, 0.88);
+  border-radius: 44% 56% 49% 51%;
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.24);
+}
+
+.preview-immune-cell::after {
+  content: "";
+  position: absolute;
+  width: 32%;
+  height: 32%;
+  border-radius: 50%;
+  background: rgba(29, 55, 108, 0.64);
+}
+
+.preview-immune-cell--one {
+  left: 24%;
+  top: 38%;
+  width: 74px;
+  height: 68px;
+  background: #58d7ff;
+  transform: rotate(-12deg);
+}
+
+.preview-immune-cell--one::after {
+  left: 28%;
+  top: 34%;
+}
+
+.preview-immune-cell--two {
+  right: 24%;
+  bottom: 22%;
+  width: 54px;
+  height: 54px;
+  background: #8df29a;
+}
+
+.preview-immune-cell--two::after {
+  left: 36%;
+  top: 33%;
+}
+
+.preview-bacterium {
+  width: 42px;
+  height: 20px;
+  border: 2px solid #721b4b;
+  border-radius: 999px;
+  background: #ef507d;
+  box-shadow: inset 8px 0 rgba(255, 255, 255, 0.18);
+}
+
+.preview-bacterium--one {
+  right: 14%;
+  top: 24%;
+  transform: rotate(24deg);
+}
+
+.preview-bacterium--two {
+  left: 47%;
+  bottom: 19%;
+  transform: rotate(-18deg) scale(0.72);
 }
 
 .not-found-panel {
@@ -897,6 +991,520 @@ a {
   box-shadow: 0 0 22px rgba(166, 255, 122, 0.32);
 }
 
+/* Immune */
+.game-route--immune {
+  --immune-ink: #fff9fc;
+  --immune-muted: #d9c9dd;
+  --immune-panel: rgba(21, 17, 43, 0.9);
+  --immune-line: rgba(255, 232, 244, 0.24);
+  --immune-pink: #ff8ea5;
+  --immune-gold: #ffe48d;
+  --immune-green: #8df29a;
+  background: #15152d;
+  color: var(--immune-ink);
+}
+
+.immune-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.immune-chrome {
+  border-color: rgba(255, 232, 244, 0.26);
+  background: rgba(20, 15, 39, 0.78);
+}
+
+.immune-hud {
+  position: fixed;
+  top: 14px;
+  left: 16px;
+  z-index: 40;
+  width: min(650px, calc(100vw - 210px));
+  color: var(--immune-ink);
+  pointer-events: none;
+}
+
+.immune-hud__mission,
+.immune-hud__stats {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.immune-hud__mission strong,
+.immune-hud__mission span,
+.immune-hud__stats span {
+  padding: 7px 9px;
+  border-radius: 7px;
+  background: rgba(26, 17, 48, 0.78);
+  backdrop-filter: blur(10px);
+}
+
+.immune-hud__mission strong {
+  color: #160f2c;
+  background: var(--immune-gold);
+}
+
+.immune-hud__mission span {
+  color: #fff7dd;
+}
+
+.immune-hud__stats {
+  margin-top: 7px;
+  font-size: 0.86rem;
+}
+
+.immune-hud__stats span {
+  border: 1px solid var(--immune-line);
+  color: var(--immune-muted);
+}
+
+.immune-hud__stats b {
+  color: #fff;
+}
+
+.immune-hud__stats .immune-hud__division {
+  color: #ffc5d3;
+}
+
+.immune-response-track {
+  width: min(460px, 100%);
+  height: 6px;
+  margin-top: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.immune-response-track span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--immune-gold);
+  box-shadow: 0 0 8px rgba(255, 228, 141, 0.7);
+  transform-origin: left;
+  transition: transform 180ms linear;
+}
+
+.immune-player-status {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  width: min(260px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.immune-player-pill {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0 8px;
+  align-items: center;
+  padding: 9px 10px;
+  border: 2px solid #fff;
+  border-radius: 8px;
+  background: rgba(21, 17, 43, 0.82);
+  backdrop-filter: blur(10px);
+}
+
+.immune-player-pill > span {
+  grid-row: 1 / 3;
+  font-weight: 900;
+}
+
+.immune-player-pill strong {
+  font-size: 0.9rem;
+}
+
+.immune-player-pill small {
+  color: var(--immune-muted);
+  font-size: 0.74rem;
+}
+
+.immune-player-pill--p2 {
+  border-color: #ff83cf;
+}
+
+.immune-callout {
+  position: fixed;
+  top: 118px;
+  left: 50%;
+  z-index: 43;
+  transform: translateX(-50%);
+  max-width: calc(100vw - 32px);
+  padding: 9px 13px;
+  border-radius: 7px;
+  background: #fff4c0;
+  color: #24142c;
+  font-weight: 850;
+  text-align: center;
+  pointer-events: none;
+  animation: immune-callout-in 180ms ease-out both;
+}
+
+@keyframes immune-callout-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -5px);
+  }
+}
+
+.immune-setup,
+.immune-result,
+.immune-pause {
+  position: fixed;
+  left: 50%;
+  z-index: 50;
+  width: min(840px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  background: var(--immune-panel);
+  color: var(--immune-ink);
+  backdrop-filter: blur(16px);
+}
+
+.immune-setup {
+  top: 50%;
+  max-height: calc(100dvh - 40px);
+  overflow: auto;
+  transform: translate(-50%, -50%);
+  padding: 24px;
+  border-radius: 10px;
+}
+
+.immune-setup:has(.immune-role-picker:only-child) {
+  width: min(650px, calc(100vw - 32px));
+}
+
+.immune-setup h1,
+.immune-result h1 {
+  margin: 0;
+  color: #fff;
+  font-size: 2.8rem;
+  line-height: 0.98;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+
+.immune-alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  margin-bottom: 10px;
+  color: #ffb3c4;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.immune-alert__pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--immune-pink);
+  box-shadow: 0 0 0 5px rgba(255, 142, 165, 0.15);
+  animation: immune-alarm 1.6s ease-in-out infinite;
+}
+
+@keyframes immune-alarm {
+  50% {
+    box-shadow: 0 0 0 9px rgba(255, 142, 165, 0.04);
+    transform: scale(0.82);
+  }
+}
+
+.immune-setup__intro {
+  max-width: 66ch;
+  margin: 11px 0 17px;
+  color: var(--immune-muted);
+  line-height: 1.48;
+}
+
+.immune-count,
+.immune-role-picker {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.immune-count {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.immune-count legend,
+.immune-role-picker legend {
+  color: #fff;
+  font-weight: 850;
+}
+
+.immune-count legend {
+  float: left;
+  margin-right: 10px;
+  line-height: 38px;
+}
+
+.immune-count button,
+.immune-role-picker button,
+.immune-start,
+.immune-secondary {
+  min-height: 40px;
+  border: 1px solid var(--immune-line);
+  border-radius: 7px;
+  background: rgba(59, 43, 82, 0.8);
+  color: var(--immune-ink);
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.immune-count button {
+  padding: 0 13px;
+  font-weight: 800;
+}
+
+.immune-count button:hover,
+.immune-role-picker button:hover,
+.immune-secondary:hover {
+  border-color: rgba(255, 255, 255, 0.64);
+  background: rgba(79, 56, 105, 0.95);
+}
+
+.immune-count button.is-selected {
+  border-color: var(--immune-gold);
+  background: var(--immune-gold);
+  color: #21142d;
+}
+
+.immune-role-selectors {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.immune-role-selectors:has(.immune-role-picker:only-child) {
+  grid-template-columns: minmax(0, 390px);
+}
+
+.immune-role-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.immune-role-picker legend {
+  margin-bottom: 8px;
+}
+
+.immune-role-picker button {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 9px;
+  text-align: left;
+}
+
+.immune-role-picker button.is-selected {
+  border-color: #ffffff;
+  background: rgba(96, 68, 120, 0.98);
+}
+
+.immune-role-picker--p2 button.is-selected {
+  border-color: #ff83cf;
+}
+
+.immune-role-picker button > span:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.immune-role-picker strong {
+  font-size: 0.92rem;
+}
+
+.immune-role-picker small {
+  color: var(--immune-muted);
+  line-height: 1.32;
+}
+
+.immune-role-icon {
+  position: relative;
+  display: block;
+  width: 38px;
+  height: 38px;
+  border: 2px solid rgba(255, 255, 255, 0.82);
+  border-radius: 48% 52% 44% 56%;
+}
+
+.immune-role-icon::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: rgba(24, 48, 93, 0.6);
+}
+
+.immune-role-icon--macrophage {
+  background: #58d7ff;
+}
+
+.immune-role-icon--neutrophil {
+  border-radius: 50%;
+  background: #ffca72;
+}
+
+.immune-role-icon--neutrophil::after {
+  border-radius: 50% 35% 50% 35%;
+  background: #9a6595;
+  box-shadow:
+    -8px 4px #9a6595,
+    7px 5px #9a6595;
+}
+
+.immune-role-icon--helper {
+  border-radius: 50%;
+  background: #8df29a;
+}
+
+.immune-start,
+.immune-secondary {
+  padding: 0 18px;
+  font-weight: 900;
+}
+
+.immune-start {
+  margin-top: 18px;
+  border-color: var(--immune-gold);
+  background: var(--immune-gold);
+  color: #21142d;
+}
+
+.immune-start:hover {
+  background: #fff0ae;
+  transform: translateY(-1px);
+}
+
+.immune-count button:focus-visible,
+.immune-role-picker button:focus-visible,
+.immune-start:focus-visible,
+.immune-secondary:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 3px;
+}
+
+.immune-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 12px;
+  color: var(--immune-muted);
+  font-size: 0.78rem;
+}
+
+.immune-result {
+  top: 50%;
+  width: min(560px, calc(100vw - 32px));
+  transform: translate(-50%, -50%);
+  padding: 28px;
+  border-radius: 10px;
+  text-align: center;
+}
+
+.immune-pause {
+  top: 50%;
+  width: min(440px, calc(100vw - 32px));
+  transform: translate(-50%, -50%);
+  padding: 26px;
+  border-radius: 10px;
+  text-align: center;
+}
+
+.immune-pause p {
+  margin: 0 0 8px;
+  color: var(--immune-gold);
+  font-weight: 850;
+}
+
+.immune-pause h1 {
+  margin: 0;
+  font-size: 2rem;
+  line-height: 1.08;
+  text-wrap: balance;
+}
+
+.immune-pause small {
+  display: block;
+  margin-top: 11px;
+  color: var(--immune-muted);
+}
+
+.immune-result__status {
+  margin: 0 0 9px;
+  color: var(--immune-gold);
+  font-weight: 850;
+}
+
+.immune-result > p:not(.immune-result__status) {
+  max-width: 56ch;
+  margin: 12px auto 0;
+  color: var(--immune-muted);
+  line-height: 1.5;
+}
+
+.immune-result__stats {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 19px;
+}
+
+.immune-result__stats span {
+  padding: 9px 10px;
+  border: 1px solid var(--immune-line);
+  border-radius: 7px;
+  background: rgba(58, 42, 80, 0.65);
+  color: var(--immune-muted);
+}
+
+.immune-result__stats strong {
+  color: #fff;
+}
+
+.immune-result__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 9px;
+  margin-top: 20px;
+}
+
+.immune-result__actions .immune-start {
+  margin: 0;
+}
+
+.immune-result > small {
+  display: block;
+  margin-top: 12px;
+  color: var(--immune-muted);
+}
+
 @media (max-width: 720px) {
   .portal-shell {
     padding: 18px;
@@ -990,6 +1598,75 @@ a {
   .lizard-key {
     border-radius: 8px;
   }
+
+  .immune-chrome {
+    top: 10px;
+    right: 10px;
+  }
+
+  .immune-hud {
+    top: 10px;
+    left: 10px;
+    width: calc(100vw - 130px);
+  }
+
+  .immune-hud__mission,
+  .immune-hud__stats {
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+
+  .immune-hud__mission strong,
+  .immune-hud__mission span,
+  .immune-hud__stats span {
+    padding: 5px 7px;
+    font-size: 0.72rem;
+  }
+
+  .immune-player-status {
+    right: 10px;
+    bottom: 10px;
+    width: min(230px, calc(100vw - 20px));
+  }
+
+  .immune-callout {
+    top: 116px;
+    font-size: 0.8rem;
+  }
+
+  .immune-setup {
+    top: 56px;
+    max-height: calc(100dvh - 66px);
+    transform: translateX(-50%);
+    padding: 18px;
+  }
+
+  .immune-setup h1,
+  .immune-result h1 {
+    font-size: 2.15rem;
+  }
+
+  .immune-role-selectors {
+    grid-template-columns: 1fr;
+  }
+
+  .immune-role-picker button {
+    grid-template-columns: 36px 1fr;
+  }
+
+  .immune-role-icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  .immune-role-icon::after {
+    left: 10px;
+    top: 10px;
+  }
+
+  .immune-result {
+    padding: 22px 18px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1000,5 +1677,9 @@ a {
     transition-duration: 0.01ms;
     animation-duration: 0.01ms;
     animation-iteration-count: 1;
+  }
+
+  .immune-alert__pulse {
+    box-shadow: none;
   }
 }
