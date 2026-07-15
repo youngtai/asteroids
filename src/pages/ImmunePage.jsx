@@ -11,7 +11,7 @@ const ROLES = {
     name: 'Macrophage',
     short: 'Engulf',
     special: 'Phagocyte rush',
-    description: 'Grab nearby bacteria with reaching arms and digest them whole.',
+    description: 'Wrap bacteria in pseudopods and digest them through phagocytosis.',
     color: '#58d7ff',
     speed: 205,
   },
@@ -202,17 +202,22 @@ function destroyBacterium(game, bacterium, source, style = 'burst') {
     game.timeLeft = Math.max(0, game.timeLeft - 0.18);
   }
   if (source) source.kills += 1;
+  const isPhagocytosis = style === 'engulf';
+  const effectLife = isPhagocytosis ? (game.reducedMotion ? 0.28 : 0.82) : 0.34;
   game.effects.push({
-    type: style,
+    type: isPhagocytosis ? 'phagocytosis' : style,
     x: bacterium.x,
     y: bacterium.y,
     fromX: source?.x ?? bacterium.x,
     fromY: source?.y ?? bacterium.y,
+    owner: isPhagocytosis ? source : null,
+    bacteriumAngle: bacterium.angle,
+    armored: bacterium.maxHp > 1,
     color: source ? ROLES[source.role].color : '#fff4a3',
-    life: style === 'engulf' ? 0.48 : 0.34,
-    maxLife: style === 'engulf' ? 0.48 : 0.34,
+    life: effectLife,
+    maxLife: effectLife,
   });
-  addParticles(game, bacterium.x, bacterium.y, '#fb7d92', style === 'engulf' ? 7 : 12);
+  if (!isPhagocytosis) addParticles(game, bacterium.x, bacterium.y, '#fb7d92', 12);
 }
 
 function damageBacterium(game, bacterium, amount, source, style = 'burst') {
@@ -782,6 +787,38 @@ function drawBacterium(ctx, bacterium) {
   ctx.restore();
 }
 
+function drawCapturedBacterium(ctx, x, y, scale, rotation, alpha = 1, armored = false) {
+  if (scale <= 0.01 || alpha <= 0) return;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rotation);
+  ctx.scale(scale, scale);
+  ctx.globalAlpha *= alpha;
+  ctx.fillStyle = '#ef507d';
+  ctx.strokeStyle = '#721b4b';
+  ctx.lineWidth = 3;
+  roundedRect(ctx, -22, -12, 44, 24, 12);
+  ctx.fill();
+  ctx.stroke();
+  if (armored) {
+    ctx.strokeStyle = 'rgba(255, 226, 239, 0.78)';
+    ctx.lineWidth = 2;
+    roundedRect(ctx, -28, -17, 56, 34, 16);
+    ctx.stroke();
+  }
+  ctx.fillStyle = '#ffb2ca';
+  for (const [spotX, spotY] of [
+    [-10, 4],
+    [3, -4],
+    [13, 4],
+  ]) {
+    ctx.beginPath();
+    ctx.arc(spotX, spotY, 2.3, 0, TAU);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 function drawMacrophage(ctx, cell, color) {
   const pulse = cell.actionPulse > 0 ? 1.14 : 1;
   ctx.save();
@@ -929,12 +966,134 @@ function drawEffects(ctx, game) {
 
   for (const effect of game.effects) {
     const progress = 1 - effect.life / effect.maxLife;
-    const alpha = Math.min(1, effect.life * 2.6);
+    const alpha =
+      effect.type === 'phagocytosis'
+        ? clamp((1 - progress) / 0.08, 0, 1)
+        : Math.min(1, effect.life * 2.6);
     ctx.save();
     ctx.globalAlpha = alpha;
-    if (effect.type === 'engulf' || effect.type === 'pseudopod') {
+    if (effect.type === 'phagocytosis') {
+      const sourceX = effect.owner?.x ?? effect.fromX;
+      const sourceY = effect.owner?.y ?? effect.fromY;
+
+      if (game.reducedMotion) {
+        drawCapturedBacterium(
+          ctx,
+          effect.x,
+          effect.y,
+          1 - progress * 0.35,
+          effect.bacteriumAngle,
+          1 - progress,
+          effect.armored
+        );
+        ctx.strokeStyle = effect.color;
+        ctx.lineWidth = 5 * (1 - progress) + 2;
+        ctx.beginPath();
+        ctx.arc(sourceX, sourceY, 18 + progress * 18, 0, TAU);
+        ctx.stroke();
+      } else {
+        const smooth = (value) => value * value * (3 - 2 * value);
+        const reach = smooth(clamp(progress / 0.3, 0, 1));
+        const pull = smooth(clamp((progress - 0.28) / 0.4, 0, 1));
+        const digest = smooth(clamp((progress - 0.68) / 0.32, 0, 1));
+        const dx = effect.x - sourceX;
+        const dy = effect.y - sourceY;
+        const length = Math.max(1, Math.hypot(dx, dy));
+        const ux = dx / length;
+        const uy = dy / length;
+        const nx = -uy;
+        const ny = ux;
+        const swallowedX = sourceX + ux * 5;
+        const swallowedY = sourceY + uy * 5;
+        const bacteriumX = effect.x + (swallowedX - effect.x) * pull;
+        const bacteriumY = effect.y + (swallowedY - effect.y) * pull;
+
+        ctx.save();
+        ctx.globalAlpha *= 1 - digest;
+        ctx.lineCap = 'round';
+        for (const side of [-1, 0, 1]) {
+          const startX = sourceX + ux * 10 + nx * side * 12;
+          const startY = sourceY + uy * 10 + ny * side * 12;
+          const spread = side * (18 - pull * 8);
+          const targetX = bacteriumX - ux * (8 + pull * 5) + nx * spread;
+          const targetY = bacteriumY - uy * (8 + pull * 5) + ny * spread;
+          const tipX = startX + (targetX - startX) * reach;
+          const tipY = startY + (targetY - startY) * reach;
+          const curve = side * 14 + Math.sin(progress * Math.PI) * (side === 0 ? 18 : 7);
+          const controlX = (startX + tipX) / 2 + nx * curve;
+          const controlY = (startY + tipY) / 2 + ny * curve;
+
+          ctx.strokeStyle = 'rgba(18, 93, 139, 0.6)';
+          ctx.lineWidth = 13 - pull * 3;
+          ctx.beginPath();
+          ctx.moveTo(startX, startY);
+          ctx.quadraticCurveTo(controlX, controlY, tipX, tipY);
+          ctx.stroke();
+          ctx.strokeStyle = effect.color;
+          ctx.lineWidth = 8 - pull * 2;
+          ctx.beginPath();
+          ctx.moveTo(startX, startY);
+          ctx.quadraticCurveTo(controlX, controlY, tipX, tipY);
+          ctx.stroke();
+        }
+        ctx.restore();
+
+        const membraneClose = smooth(clamp((progress - 0.08) / 0.48, 0, 1));
+        const vesicleRadius = 30 - pull * 9 - digest * 7;
+        ctx.strokeStyle = 'rgba(204, 247, 255, 0.92)';
+        ctx.lineWidth = 4 - digest * 1.5;
+        ctx.beginPath();
+        ctx.arc(
+          bacteriumX,
+          bacteriumY,
+          vesicleRadius,
+          -Math.PI / 2,
+          -Math.PI / 2 + TAU * membraneClose
+        );
+        ctx.stroke();
+        ctx.strokeStyle = effect.color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(bacteriumX, bacteriumY, vesicleRadius - 4, 0, TAU);
+        ctx.stroke();
+
+        const bacteriumScale = (1 - pull * 0.58) * (1 - digest * 0.94);
+        drawCapturedBacterium(
+          ctx,
+          bacteriumX,
+          bacteriumY,
+          bacteriumScale,
+          effect.bacteriumAngle + pull * Math.PI * 1.4,
+          1 - digest * 0.75,
+          effect.armored
+        );
+
+        if (digest > 0) {
+          for (let index = 0; index < 6; index += 1) {
+            const angle = (index / 6) * TAU + digest * Math.PI * 2;
+            const radius = 15 * (1 - digest * 0.55);
+            ctx.fillStyle = index % 2 === 0 ? '#fff1a8' : '#9dffcf';
+            ctx.beginPath();
+            ctx.arc(
+              swallowedX + Math.cos(angle) * radius,
+              swallowedY + Math.sin(angle) * radius,
+              2.5 + digest * 1.5,
+              0,
+              TAU
+            );
+            ctx.fill();
+          }
+          ctx.globalAlpha *= 1 - digest;
+          ctx.strokeStyle = '#fff4ad';
+          ctx.lineWidth = 5 - digest * 3;
+          ctx.beginPath();
+          ctx.arc(swallowedX, swallowedY, 20 + digest * 28, 0, TAU);
+          ctx.stroke();
+        }
+      }
+    } else if (effect.type === 'pseudopod') {
       ctx.strokeStyle = effect.color;
-      ctx.lineWidth = effect.type === 'engulf' ? 15 * (1 - progress) + 3 : 8;
+      ctx.lineWidth = 8;
       ctx.lineCap = 'round';
       ctx.beginPath();
       ctx.moveTo(effect.fromX, effect.fromY);
