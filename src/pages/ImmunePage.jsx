@@ -474,7 +474,7 @@ function updateAI(game, cell, dt) {
   }
 }
 
-function updatePlayers(game, dt, keys, gamepads, buttonEdges) {
+function updatePlayers(game, dt, keys, gamepads, buttonEdges, touchInput) {
   const controlSets = [
     { left: 'KeyA', right: 'KeyD', up: 'KeyW', down: 'KeyS' },
     { left: 'ArrowLeft', right: 'ArrowRight', up: 'ArrowUp', down: 'ArrowDown' },
@@ -496,6 +496,10 @@ function updatePlayers(game, dt, keys, gamepads, buttonEdges) {
       x += padX + (pad.buttons[15]?.pressed ? 1 : 0) - (pad.buttons[14]?.pressed ? 1 : 0);
       y += padY + (pad.buttons[13]?.pressed ? 1 : 0) - (pad.buttons[12]?.pressed ? 1 : 0);
     }
+    if (index === 0 && touchInput) {
+      x += touchInput.x;
+      y += touchInput.y;
+    }
     const magnitude = Math.hypot(x, y);
     if (magnitude > 0 && player.fatigued <= 0) {
       x /= magnitude;
@@ -511,11 +515,11 @@ function updatePlayers(game, dt, keys, gamepads, buttonEdges) {
   });
 }
 
-function updateGame(game, dt, keys, gamepads, buttonEdges) {
+function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
   game.elapsed += dt;
   game.breach.pulse += dt;
   game.messageTime = Math.max(0, game.messageTime - dt);
-  updatePlayers(game, dt, keys, gamepads, buttonEdges);
+  updatePlayers(game, dt, keys, gamepads, buttonEdges, touchInput);
 
   game.nextComplement -= dt;
   if (game.nextComplement <= 0) {
@@ -1076,6 +1080,9 @@ export function ImmunePage() {
   const keysRef = useRef(new Set());
   const pressedRef = useRef([new Set(), new Set()]);
   const keyboardEdgesRef = useRef([{}, {}]);
+  const touchInputRef = useRef({ x: 0, y: 0 });
+  const touchPointerRef = useRef(null);
+  const touchStickRef = useRef(null);
   const configRef = useRef({ playerCount: 1, roles: ['macrophage', 'neutrophil'] });
   const [config, setConfig] = useState(configRef.current);
   const [snapshot, setSnapshot] = useState(INITIAL_SNAPSHOT);
@@ -1093,6 +1100,8 @@ export function ImmunePage() {
     if (!canvas) return;
     const width = canvas.clientWidth || window.innerWidth;
     const height = canvas.clientHeight || window.innerHeight;
+    touchInputRef.current = { x: 0, y: 0 };
+    if (touchStickRef.current) touchStickRef.current.style.transform = 'translate(0px, 0px)';
     previewRef.current = null;
     gameRef.current = makeGame(width, height, {
       ...configRef.current,
@@ -1104,6 +1113,8 @@ export function ImmunePage() {
 
   const returnToSetup = useCallback(() => {
     gameRef.current = null;
+    touchInputRef.current = { x: 0, y: 0 };
+    if (touchStickRef.current) touchStickRef.current.style.transform = 'translate(0px, 0px)';
     snapshotModeRef.current = 'setup';
     setSnapshot(INITIAL_SNAPSHOT);
   }, []);
@@ -1170,7 +1181,9 @@ export function ImmunePage() {
         if (edges.some((edge) => edge.pause) && ['playing', 'paused'].includes(game.mode)) {
           game.mode = game.mode === 'paused' ? 'playing' : 'paused';
         }
-        if (game.mode === 'playing') updateGame(game, dt, keysRef.current, pads, edges);
+        if (game.mode === 'playing') {
+          updateGame(game, dt, keysRef.current, pads, edges, touchInputRef.current);
+        }
         drawGame(ctx, game);
         if (now - game.lastSnapshot > SNAPSHOT_INTERVAL || game.mode !== snapshotModeRef.current) {
           game.lastSnapshot = now;
@@ -1323,6 +1336,53 @@ export function ImmunePage() {
     });
   };
 
+  const moveTouchStick = useCallback((event) => {
+    if (touchPointerRef.current !== event.pointerId) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const maxDistance = rect.width * 0.32;
+    const rawX = event.clientX - centerX;
+    const rawY = event.clientY - centerY;
+    const distanceFromCenter = Math.hypot(rawX, rawY) || 1;
+    const scale = Math.min(1, maxDistance / distanceFromCenter);
+    const x = rawX * scale;
+    const y = rawY * scale;
+    touchInputRef.current = { x: x / maxDistance, y: y / maxDistance };
+    if (touchStickRef.current) {
+      touchStickRef.current.style.transform = `translate(${x}px, ${y}px)`;
+    }
+  }, []);
+
+  const startTouchStick = useCallback(
+    (event) => {
+      event.preventDefault();
+      touchPointerRef.current = event.pointerId;
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      moveTouchStick(event);
+    },
+    [moveTouchStick]
+  );
+
+  const stopTouchStick = useCallback((event) => {
+    if (touchPointerRef.current !== event.pointerId) return;
+    touchPointerRef.current = null;
+    touchInputRef.current = { x: 0, y: 0 };
+    if (touchStickRef.current) touchStickRef.current.style.transform = 'translate(0px, 0px)';
+  }, []);
+
+  const pressTouchAction = useCallback((action, event) => {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    event.currentTarget.dataset.pressed = 'true';
+    keyboardEdgesRef.current[0][action] = true;
+    navigator.vibrate?.(action === 'special' ? 24 : 10);
+  }, []);
+
+  const releaseTouchAction = useCallback((event) => {
+    event.currentTarget.dataset.pressed = 'false';
+  }, []);
+
   return (
     <main className="game-route game-route--immune">
       <canvas className="immune-canvas" ref={canvasRef} />
@@ -1408,6 +1468,55 @@ export function ImmunePage() {
         </div>
       )}
 
+      {snapshot.mode === 'playing' && snapshot.players[0] && (
+        <section className="immune-touch-controls" aria-label="Player 1 touch controls">
+          <button
+            aria-label="Movement joystick"
+            className="immune-touch-joystick"
+            onContextMenu={(event) => event.preventDefault()}
+            onPointerCancel={stopTouchStick}
+            onPointerDown={startTouchStick}
+            onPointerMove={moveTouchStick}
+            onPointerUp={stopTouchStick}
+            type="button"
+          >
+            <span className="immune-touch-joystick__arrows" aria-hidden="true">
+              +
+            </span>
+            <span className="immune-touch-joystick__knob" ref={touchStickRef} />
+            <small>P1 move</small>
+          </button>
+          <div className="immune-touch-actions">
+            <button
+              aria-label={`${ROLES[snapshot.players[0].role].short} action`}
+              className="immune-touch-action immune-touch-action--primary"
+              data-pressed="false"
+              onContextMenu={(event) => event.preventDefault()}
+              onPointerCancel={releaseTouchAction}
+              onPointerDown={(event) => pressTouchAction('primary', event)}
+              onPointerUp={releaseTouchAction}
+              type="button"
+            >
+              <strong>{ROLES[snapshot.players[0].role].short}</strong>
+              <small>Action</small>
+            </button>
+            <button
+              aria-label={`${ROLES[snapshot.players[0].role].special} special`}
+              className="immune-touch-action immune-touch-action--special"
+              data-pressed="false"
+              onContextMenu={(event) => event.preventDefault()}
+              onPointerCancel={releaseTouchAction}
+              onPointerDown={(event) => pressTouchAction('special', event)}
+              onPointerUp={releaseTouchAction}
+              type="button"
+            >
+              <strong>{ROLES[snapshot.players[0].role].special}</strong>
+              <small>Special</small>
+            </button>
+          </div>
+        </section>
+      )}
+
       {snapshot.mode === 'paused' && (
         <section className="immune-pause" aria-labelledby="immune-pause-title">
           <p>Battle paused</p>
@@ -1490,6 +1599,7 @@ export function ImmunePage() {
             {config.playerCount === 2 && <span>P2: Arrows, Enter action, / special</span>}
             <span>Gamepad: Stick, A action, X or B special</span>
             <span>Setup: D-pad picks a cell, A starts or joins</span>
+            <span>Touch: joystick and action buttons control P1</span>
           </div>
         </section>
       )}
