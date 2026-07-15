@@ -109,6 +109,65 @@ function spawnInitialBacteria(game, count = 20) {
   }
 }
 
+function spawnIncomingBacterium(game) {
+  if (game.bacteria.length >= MAX_BACTERIA) return false;
+  const edge = Math.floor(Math.random() * 4);
+  const margin = 22;
+  const topBound = 82;
+  let x;
+  let y;
+  let fromX;
+  let fromY;
+
+  if (edge === 0) {
+    x = randomBetween(margin, game.width - margin);
+    y = topBound;
+    fromX = x;
+    fromY = topBound - 54;
+  } else if (edge === 1) {
+    x = game.width - margin;
+    y = randomBetween(topBound, game.height - margin);
+    fromX = game.width + 54;
+    fromY = y;
+  } else if (edge === 2) {
+    x = randomBetween(margin, game.width - margin);
+    y = game.height - margin;
+    fromX = x;
+    fromY = game.height + 54;
+  } else {
+    x = margin;
+    y = randomBetween(topBound, game.height - margin);
+    fromX = -54;
+    fromY = y;
+  }
+
+  const bacterium = makeBacterium(game, x, y);
+  const heading =
+    Math.atan2(game.breach.y - bacterium.y, game.breach.x - bacterium.x) +
+    randomBetween(-0.24, 0.24);
+  const speed = randomBetween(32, 48);
+  bacterium.vx = Math.cos(heading) * speed;
+  bacterium.vy = Math.sin(heading) * speed;
+  bacterium.angle = heading;
+  game.bacteria.push(bacterium);
+  game.effects.push({
+    type: 'arrival',
+    x,
+    y,
+    fromX,
+    fromY,
+    color: '#ff9db8',
+    life: game.reducedMotion ? 0.25 : 0.72,
+    maxLife: game.reducedMotion ? 0.25 : 0.72,
+  });
+  playGameSound(game, 'arrival');
+  game.incomingCount += 1;
+  if (game.incomingCount === 1) {
+    setMessage(game, 'More bacteria are entering from the bloodstream', 2.8);
+  }
+  return true;
+}
+
 function makeDefender(game, role, index, isPlayer) {
   const angle = (index / 6) * TAU + Math.PI * 0.6;
   const radius = isPlayer ? 190 : 245;
@@ -153,12 +212,14 @@ function makeGame(width, height, config) {
     particles: [],
     nextId: 1,
     nextDivision: 5.4,
+    nextIngress: 4.2,
     nextAntibody: 0,
     nextComplement: 1.4,
     lastSnapshot: 0,
     responseStartedAt: 0,
     antibodyHits: 0,
     totalDestroyed: 0,
+    incomingCount: 0,
     earlyClear: false,
     sound: config.sound ?? null,
     integrityWarnings: new Set(),
@@ -566,6 +627,16 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
   if (game.nextComplement <= 0) {
     activateComplement(game);
     game.nextComplement = game.phase === 'adaptive' ? 1.25 : 2.2;
+  }
+
+  game.nextIngress -= dt;
+  if (game.nextIngress <= 0) {
+    const entered = spawnIncomingBacterium(game);
+    game.nextIngress = entered
+      ? game.phase === 'adaptive'
+        ? randomBetween(7.5, 10)
+        : randomBetween(5.4, 7.2)
+      : 1.5;
   }
 
   if (game.phase === 'innate') {
@@ -1139,6 +1210,24 @@ function drawEffects(ctx, game) {
           ctx.stroke();
         }
       }
+    } else if (effect.type === 'arrival') {
+      const entryProgress = 1 - (1 - clamp(progress * 1.7, 0, 1)) ** 3;
+      const entryX = effect.fromX + (effect.x - effect.fromX) * entryProgress;
+      const entryY = effect.fromY + (effect.y - effect.fromY) * entryProgress;
+      if (!game.reducedMotion) {
+        ctx.strokeStyle = effect.color;
+        ctx.lineWidth = Math.max(2, 4 * bacteriaScale * (1 - progress));
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(effect.fromX, effect.fromY);
+        ctx.lineTo(entryX, entryY);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = '#ffd1de';
+      ctx.lineWidth = Math.max(1.5, 3 * bacteriaScale * (1 - progress * 0.6));
+      ctx.beginPath();
+      ctx.arc(effect.x, effect.y, (22 - progress * 13) * bacteriaScale, 0, TAU);
+      ctx.stroke();
     } else if (effect.type === 'pseudopod') {
       ctx.strokeStyle = effect.color;
       ctx.lineWidth = Math.max(3, 8 * cellScale);

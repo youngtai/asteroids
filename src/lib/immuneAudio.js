@@ -3,6 +3,7 @@ const SOUND_COOLDOWNS = {
   shot: 70,
   signal: 110,
   division: 800,
+  arrival: 600,
   rush: 300,
   net: 500,
   rally: 500,
@@ -124,6 +125,15 @@ export function createImmuneSoundEngine() {
         volume: 0.12,
         type: 'sine',
         delay: 0.1,
+      });
+    } else if (name === 'arrival') {
+      noise({ duration: 0.18, volume: 0.055, frequency: 1100 });
+      tone({
+        startFrequency: 370,
+        endFrequency: 165,
+        duration: 0.2,
+        volume: 0.11,
+        type: 'triangle',
       });
     } else if (name === 'rush') {
       tone({
