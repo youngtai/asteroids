@@ -3049,7 +3049,7 @@ export function ImmunePage() {
             className="immune-response-track"
             aria-label={
               snapshot.experience === 'education'
-                ? 'Guided immune response progress'
+                ? 'Immune Journey progress'
                 : 'Adaptive response progress'
             }
             aria-valuemax={
@@ -3228,8 +3228,8 @@ export function ImmunePage() {
               }
               type="button"
             >
-              <strong>Guided response</strong>
-              <small>Solo · Learn the immune cycle by playing every phase</small>
+              <strong>Immune Journey</strong>
+              <small>Solo · Learn how your immune system fights an infection</small>
             </button>
             <button
               aria-pressed={config.experience === 'defense'}
@@ -3289,7 +3289,7 @@ export function ImmunePage() {
               </div>
             </>
           ) : (
-            <ol className="immune-journey-preview" aria-label="Guided response chapters">
+            <ol className="immune-journey-preview" aria-label="Immune Journey chapters">
               {LEARNING_STAGES.map((stage, index) => (
                 <li key={stage.id}>
                   <span>{index + 1}</span>
@@ -3303,7 +3303,7 @@ export function ImmunePage() {
           )}
 
           <button className="immune-start" onClick={startGame} type="button">
-            {config.experience === 'education' ? 'Begin guided response' : 'Defend the tissue'}
+            {config.experience === 'education' ? 'Begin Immune Journey' : 'Defend the tissue'}
           </button>
           <div className="immune-controls">
             <span>P1: WASD, F action, G special</span>
