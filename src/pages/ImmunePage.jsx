@@ -42,6 +42,58 @@ const ROLES = {
 const ROLE_KEYS = Object.keys(ROLES);
 const PLAYER_COLORS = ['#ffffff', '#ff83cf'];
 
+const LEARNING_STAGES = [
+  {
+    id: 'alarm',
+    title: 'Tissue alarm',
+    cell: 'Resident macrophage',
+    objective: 'Move into the pulsing breach',
+    fact: 'Injured cells release chemical distress signals that wake nearby immune cells.',
+  },
+  {
+    id: 'macrophage',
+    title: 'Resident patrol',
+    cell: 'Macrophage',
+    objective: 'Engulf 4 bacteria',
+    fact: 'Macrophages live in tissue and swallow invaders through phagocytosis.',
+  },
+  {
+    id: 'neutrophil',
+    title: 'Fast reinforcement',
+    cell: 'Neutrophil',
+    objective: 'Fire 3 toxin bursts and cast 1 DNA net',
+    fact: 'Neutrophils arrive quickly, but their toxic weapons can also damage healthy tissue.',
+  },
+  {
+    id: 'dendritic',
+    title: 'Carry the evidence',
+    cell: 'Dendritic cell',
+    objective: 'Protect the courier to the lymph node',
+    fact: 'Dendritic cells carry bacterial fragments to a lymph node to find a matching T cell.',
+  },
+  {
+    id: 'helper',
+    title: 'Days pass: find a match',
+    cell: 'Helper T cell',
+    objective: 'Match the antigen, then rally the squad',
+    fact: 'Over several days, one matching helper T cell activates, energizes macrophages, and authorizes B cells.',
+  },
+  {
+    id: 'antibodies',
+    title: 'Antibody cleanup',
+    cell: 'B cell + macrophage',
+    objective: 'Engulf the antibody-clumped bacteria',
+    fact: 'Plasma cells release antibodies that tag and clump invaders for easy cleanup.',
+  },
+  {
+    id: 'memory',
+    title: 'A faster second response',
+    cell: 'Memory B + T cells',
+    objective: 'Watch the same bacterium return',
+    fact: 'Memory cells remain after the battle and recognize the same invader much faster next time.',
+  },
+];
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
@@ -397,7 +449,9 @@ function updateTissue(game, dt) {
     const index = tissueIndexAt(game, bacterium.x, bacterium.y);
     const nearBreach = distance(bacterium, game.breach) < 92;
     const responsiveDamageScale = tissue.health.length / 350;
-    const damageRate = (game.phase === 'adaptive' ? 0.035 : 0.135) * responsiveDamageScale;
+    const educationDamageScale = game.experience === 'education' ? 0.52 : 1;
+    const damageRate =
+      (game.phase === 'adaptive' ? 0.035 : 0.135) * responsiveDamageScale * educationDamageScale;
     tissue.health[index] = Math.max(
       0,
       tissue.health[index] - damageRate * (nearBreach ? 1.28 : 1) * dt
@@ -438,8 +492,10 @@ function updateTissue(game, dt) {
 
 function makeGame(width, height, config) {
   const arenaScale = getArenaScale(width, height);
+  const experience = config.experience === 'education' ? 'education' : 'defense';
   const game = {
     mode: 'playing',
+    experience,
     phase: 'innate',
     width,
     height,
@@ -472,18 +528,36 @@ function makeGame(width, height, config) {
     integrityWarnings: new Set(),
     breach: { x: width * 0.5, y: height * 0.47, pulse: 0 },
     reducedMotion: Boolean(config.reducedMotion),
+    education:
+      experience === 'education'
+        ? {
+            stage: 0,
+            stageElapsed: 0,
+            progress: 0,
+            primaryActions: 0,
+            specialActions: 0,
+            stageStartKills: 0,
+            stageStartBacteria: 0,
+            courier: null,
+            plasmaCell: null,
+            helperTargets: [],
+            helperMatched: false,
+            memoryCells: [],
+          }
+        : null,
   };
 
-  const roles = config.roles.slice(0, config.playerCount);
+  const roles =
+    experience === 'education' ? ['macrophage'] : config.roles.slice(0, config.playerCount);
   roles.forEach((role, index) => {
     game.defenders.push(makeDefender(game, role, index, true));
   });
 
-  const squad = ['macrophage', 'neutrophil', 'helper'];
+  const squad = experience === 'education' ? [] : ['macrophage', 'neutrophil', 'helper'];
   squad.forEach((role, index) => {
     game.defenders.push(makeDefender(game, role, roles.length + index, false));
   });
-  spawnInitialBacteria(game);
+  spawnInitialBacteria(game, experience === 'education' ? 12 : 26);
   return game;
 }
 
@@ -558,6 +632,12 @@ function damageBacterium(game, bacterium, amount, source, style = 'burst') {
   if (bacterium.hp <= 0) destroyBacterium(game, bacterium, source, style);
 }
 
+function recordEducationAction(game, defender, action) {
+  if (game.experience !== 'education' || !defender.isPlayer || !game.education) return;
+  if (action === 'primary') game.education.primaryActions += 1;
+  if (action === 'special') game.education.specialActions += 1;
+}
+
 function firePrimary(game, defender) {
   if (game.mode !== 'playing' || defender.actionCd > 0 || defender.fatigued > 0) return;
   if (defender.role === 'macrophage' && defender.exhausted > 0) return;
@@ -567,6 +647,7 @@ function firePrimary(game, defender) {
     const target = nearestBacterium(game, defender, defender.rage > 0 ? 112 : 92);
     defender.actionCd = defender.rage > 0 ? 0.3 : 0.58;
     if (target) {
+      recordEducationAction(game, defender, 'primary');
       defender.facing = Math.atan2(target.y - defender.y, target.x - defender.x);
       playGameSound(game, 'engulf');
       damageBacterium(game, target, defender.rage > 0 ? 1.5 : 1.05, defender, 'engulf');
@@ -591,7 +672,10 @@ function firePrimary(game, defender) {
 
   if (defender.role === 'neutrophil') {
     const target = nearestBacterium(game, defender, 340);
-    if (target) defender.facing = Math.atan2(target.y - defender.y, target.x - defender.x);
+    if (target) {
+      recordEducationAction(game, defender, 'primary');
+      defender.facing = Math.atan2(target.y - defender.y, target.x - defender.x);
+    }
     defender.actionCd = 0.36;
     playGameSound(game, 'shot');
     game.projectiles.push({
@@ -606,9 +690,39 @@ function firePrimary(game, defender) {
     return;
   }
 
+  if (game.experience === 'education' && game.education?.stage === 4) {
+    defender.actionCd = 0.42;
+    const target = game.education.helperTargets
+      .map((candidate) => ({ candidate, distance: distance(defender, candidate) }))
+      .sort((a, b) => a.distance - b.distance)[0];
+    if (!target || target.distance > 72) return;
+    defender.facing = Math.atan2(target.candidate.y - defender.y, target.candidate.x - defender.x);
+    target.candidate.pulse = 0.6;
+    if (!target.candidate.matches) {
+      playGameSound(game, 'shot');
+      return;
+    }
+    if (!game.education.helperMatched) {
+      game.education.helperMatched = true;
+      recordEducationAction(game, defender, 'primary');
+      playGameSound(game, 'adaptive');
+      game.effects.push({
+        type: 'rally',
+        x: target.candidate.x,
+        y: target.candidate.y,
+        radius: 120,
+        color: ROLES.helper.color,
+        life: 1.1,
+        maxLife: 1.1,
+      });
+    }
+    return;
+  }
+
   defender.actionCd = 0.48;
   const target = nearestBacterium(game, defender, 250);
   if (target) {
+    recordEducationAction(game, defender, 'primary');
     playGameSound(game, 'signal');
     target.marked = Math.max(target.marked, 5.5);
     if (defender.isPlayer && game.phase === 'innate') {
@@ -657,6 +771,22 @@ function firePrimary(game, defender) {
 
 function fireSpecial(game, defender) {
   if (game.mode !== 'playing' || defender.specialCd > 0 || defender.fatigued > 0) return;
+  if (
+    game.experience === 'education' &&
+    game.education?.stage === 4 &&
+    defender.role === 'helper' &&
+    !game.education.helperMatched
+  ) {
+    return;
+  }
+  if (
+    game.experience !== 'education' ||
+    game.education?.stage !== 4 ||
+    defender.role !== 'helper' ||
+    game.education.helperMatched
+  ) {
+    recordEducationAction(game, defender, 'special');
+  }
   defender.specialPulse = 0.8;
 
   if (defender.role === 'macrophage') {
@@ -689,6 +819,7 @@ function fireSpecial(game, defender) {
     playGameSound(game, 'net');
     defender.specialCd = 12;
     defender.fatigued = 1.25;
+    defender.netosisReplacement = game.experience === 'education';
     game.effects.push({
       type: 'net',
       x: defender.x,
@@ -870,6 +1001,229 @@ function updatePlayers(game, dt, keys, gamepads, buttonEdges, touchInput) {
   });
 }
 
+function ensureEducationBacteria(game, count) {
+  while (game.bacteria.filter((bacterium) => !bacterium.dead).length < count) {
+    const angle = Math.random() * TAU;
+    const radius = randomBetween(58, 148);
+    const bacterium = makeBacterium(
+      game,
+      game.breach.x + Math.cos(angle) * radius,
+      game.breach.y + Math.sin(angle) * radius
+    );
+    bacterium.hunter = Math.random() < 0.16;
+    game.bacteria.push(bacterium);
+  }
+}
+
+function addEducationAlly(game, role) {
+  const existing = game.defenders.find((cell) => !cell.isPlayer && cell.role === role);
+  if (existing) return existing;
+  const ally = makeDefender(game, role, game.defenders.length, false);
+  ally.label = role === 'macrophage' ? 'Resident ally' : `${ROLES[role].name} ally`;
+  game.defenders.push(ally);
+  return ally;
+}
+
+function setEducationPlayerRole(game, role, x = null, y = null) {
+  const player = game.defenders.find((cell) => cell.isPlayer);
+  if (!player) return null;
+  player.role = role;
+  player.label = 'YOU';
+  player.actionCd = 0;
+  player.specialCd = 0;
+  player.fatigued = 0;
+  player.netosisReplacement = false;
+  player.exhausted = 0;
+  player.exhaustion = 0;
+  player.rage = 0;
+  if (x !== null) player.x = x;
+  if (y !== null) player.y = y;
+  game.effects.push({
+    type: 'lesson-transition',
+    x: player.x,
+    y: player.y,
+    color: ROLES[role].color,
+    life: game.reducedMotion ? 0.25 : 0.8,
+    maxLife: game.reducedMotion ? 0.25 : 0.8,
+  });
+  playGameSound(game, 'recharge');
+  return player;
+}
+
+function advanceEducationStage(game) {
+  const education = game.education;
+  if (!education) return;
+  const nextStage = education.stage + 1;
+  if (nextStage >= LEARNING_STAGES.length) {
+    education.progress = 1;
+    game.earlyClear = false;
+    game.mode = 'won';
+    playGameSound(game, 'win');
+    return;
+  }
+
+  education.stage = nextStage;
+  education.stageElapsed = 0;
+  education.progress = 0;
+  education.primaryActions = 0;
+  education.specialActions = 0;
+  education.courier = null;
+  education.helperTargets = [];
+  education.helperMatched = false;
+  education.memoryCells = [];
+  const node = { x: game.width - 104, y: 124 };
+  let player = game.defenders.find((cell) => cell.isPlayer);
+
+  if (nextStage === 1) {
+    player = setEducationPlayerRole(game, 'macrophage');
+    ensureEducationBacteria(game, 10);
+  } else if (nextStage === 2) {
+    addEducationAlly(game, 'macrophage');
+    player = setEducationPlayerRole(game, 'neutrophil');
+    ensureEducationBacteria(game, 14);
+  } else if (nextStage === 3) {
+    player = setEducationPlayerRole(game, 'neutrophil');
+    education.courier = {
+      x: game.breach.x,
+      y: game.breach.y,
+      startX: game.breach.x,
+      startY: game.breach.y,
+      targetX: node.x,
+      targetY: node.y,
+      progress: 0,
+      phase: 0,
+    };
+    ensureEducationBacteria(game, 12);
+  } else if (nextStage === 4) {
+    addEducationAlly(game, 'neutrophil');
+    const macrophage = addEducationAlly(game, 'macrophage');
+    macrophage.exhausted = 8;
+    macrophage.exhaustion = 5;
+    player = setEducationPlayerRole(game, 'helper', node.x - 24, node.y + 54);
+    education.helperTargets = [
+      { x: node.x - 118, y: node.y + 18, shape: 0, matches: false, pulse: 0 },
+      { x: node.x - 54, y: node.y + 92, shape: 1, matches: true, pulse: 0 },
+      { x: node.x + 28, y: node.y + 76, shape: 2, matches: false, pulse: 0 },
+    ];
+    ensureEducationBacteria(game, 9);
+  } else if (nextStage === 5) {
+    addEducationAlly(game, 'helper');
+    player = setEducationPlayerRole(game, 'macrophage', game.breach.x - 72, game.breach.y + 24);
+    game.bacteria = game.bacteria.filter((bacterium) => !bacterium.dead).slice(0, 18);
+    ensureEducationBacteria(game, 16);
+    for (let index = 0; index < game.tissue.health.length; index += 1) {
+      game.tissue.health[index] = Math.max(0.46, game.tissue.health[index]);
+    }
+    game.integrity = Math.max(55, game.integrity);
+    education.plasmaCell = { x: node.x, y: node.y, phase: 0 };
+    game.nextIngress = Number.POSITIVE_INFINITY;
+    game.nextDivision = Number.POSITIVE_INFINITY;
+    beginAdaptiveResponse(game);
+  } else if (nextStage === 6) {
+    player = setEducationPlayerRole(game, 'macrophage', game.breach.x - 80, game.breach.y + 40);
+    game.bacteria.length = 0;
+    ensureEducationBacteria(game, 8);
+    for (const bacterium of game.bacteria) {
+      bacterium.marked = 8;
+      bacterium.clumped = 8;
+    }
+    education.memoryCells = [
+      { x: node.x - 30, y: node.y + 58, color: '#8df29a', phase: 0 },
+      { x: node.x + 28, y: node.y + 54, color: '#c58cff', phase: 1.8 },
+    ];
+    game.nextAntibody = 0;
+  }
+
+  education.stageStartKills = player?.kills ?? 0;
+  education.stageStartBacteria = Math.max(1, game.bacteria.length);
+}
+
+function updateEducation(game, dt) {
+  const education = game.education;
+  if (!education) return;
+  education.stageElapsed += dt;
+  for (const target of education.helperTargets) {
+    target.pulse = Math.max(0, target.pulse - dt);
+  }
+  for (const memoryCell of education.memoryCells) memoryCell.phase += dt * 2.2;
+  const player = game.defenders.find((cell) => cell.isPlayer);
+  if (!player) return;
+
+  if (education.stage === 0) {
+    const remaining = distance(player, game.breach);
+    education.progress = clamp(1 - (remaining - 100) / 100, 0, 1);
+    if (remaining < 112 && education.stageElapsed > 0.35) advanceEducationStage(game);
+    return;
+  }
+
+  if (education.stage === 1) {
+    const engulfed = player.kills - education.stageStartKills;
+    education.progress = clamp(engulfed / 4, 0, 1);
+    if (engulfed >= 4) advanceEducationStage(game);
+    else ensureEducationBacteria(game, 6);
+    return;
+  }
+
+  if (education.stage === 2) {
+    const toxinProgress = Math.min(3, education.primaryActions);
+    const netProgress = Math.min(1, education.specialActions);
+    education.progress = (toxinProgress + netProgress) / 4;
+    if (
+      toxinProgress >= 3 &&
+      netProgress >= 1 &&
+      player.fatigued === 0 &&
+      education.stageElapsed > 1.5
+    ) {
+      advanceEducationStage(game);
+    } else {
+      ensureEducationBacteria(game, 8);
+    }
+    return;
+  }
+
+  if (education.stage === 3) {
+    const courier = education.courier;
+    if (!courier) return;
+    courier.phase += dt * 4;
+    const nearestThreat = nearestBacterium(game, courier, 118);
+    courier.progress = clamp(courier.progress + dt * (nearestThreat ? 0.018 : 0.145), 0, 1);
+    const eased = 1 - (1 - courier.progress) ** 2;
+    courier.x = courier.startX + (courier.targetX - courier.startX) * eased;
+    courier.y = courier.startY + (courier.targetY - courier.startY) * eased;
+    education.progress = courier.progress;
+    if (courier.progress >= 1) advanceEducationStage(game);
+    else ensureEducationBacteria(game, 7);
+    return;
+  }
+
+  if (education.stage === 4) {
+    const matchProgress = education.helperMatched ? 1 : 0;
+    const rallyProgress = Math.min(1, education.specialActions);
+    education.progress = (matchProgress + rallyProgress) / 2;
+    if (matchProgress >= 1 && rallyProgress >= 1 && education.stageElapsed > 1.5) {
+      advanceEducationStage(game);
+    } else {
+      ensureEducationBacteria(game, 7);
+    }
+    return;
+  }
+
+  if (education.stage === 5) {
+    if (education.plasmaCell) education.plasmaCell.phase += dt * 3;
+    education.progress = clamp(1 - game.bacteria.length / education.stageStartBacteria, 0, 1);
+    if (game.bacteria.length === 0 && education.stageElapsed > 2) advanceEducationStage(game);
+    return;
+  }
+
+  if (education.stage === 6) {
+    education.progress = clamp(education.stageElapsed / 5, 0, 1);
+    if ((game.bacteria.length === 0 && education.stageElapsed > 2) || education.stageElapsed > 7) {
+      game.bacteria.length = 0;
+      advanceEducationStage(game);
+    }
+  }
+}
+
 function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
   game.elapsed += dt;
   game.breach.pulse += dt;
@@ -891,7 +1245,7 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
       : 1.5;
   }
 
-  if (game.phase === 'innate') {
+  if (game.phase === 'innate' && game.experience === 'defense') {
     game.timeLeft = Math.max(0, game.timeLeft - dt);
     game.nextDivision -= dt;
     if (game.nextDivision <= 0) {
@@ -899,6 +1253,15 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
       game.nextDivision = Math.max(3.1, 4.9 - game.elapsed * 0.025);
     }
     if (game.timeLeft <= 0) beginAdaptiveResponse(game);
+  } else if (game.phase === 'innate') {
+    game.timeLeft = ROUND_TIME;
+    if (game.education?.stage >= 1 && game.education.stage <= 3) {
+      game.nextDivision -= dt;
+      if (game.nextDivision <= 0) {
+        divideBacteria(game);
+        game.nextDivision = 7.4;
+      }
+    }
   } else {
     game.nextAntibody -= dt;
     if (game.nextAntibody <= 0) {
@@ -929,7 +1292,24 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
   for (const cell of game.defenders) {
     cell.actionCd = Math.max(0, cell.actionCd - dt);
     cell.specialCd = Math.max(0, cell.specialCd - dt);
+    const wasFatigued = cell.fatigued > 0;
     cell.fatigued = Math.max(0, cell.fatigued - dt);
+    if (wasFatigued && cell.fatigued === 0 && cell.netosisReplacement) {
+      cell.netosisReplacement = false;
+      cell.x = 46;
+      cell.y = clamp(game.breach.y + 150, 110, game.height - 46);
+      game.effects.push({
+        type: 'arrival',
+        x: cell.x,
+        y: cell.y,
+        fromX: -32,
+        fromY: cell.y,
+        color: ROLES.neutrophil.color,
+        life: game.reducedMotion ? 0.25 : 0.72,
+        maxLife: game.reducedMotion ? 0.25 : 0.72,
+      });
+      playGameSound(game, 'arrival');
+    }
     const wasExhausted = cell.exhausted > 0;
     cell.exhausted = Math.max(0, cell.exhausted - dt);
     if (wasExhausted && cell.exhausted === 0 && cell.role === 'macrophage') {
@@ -1020,6 +1400,7 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
   }
 
   updateTissue(game, dt);
+  if (game.experience === 'education') game.integrity = Math.max(18, game.integrity);
   for (const threshold of [70, 35]) {
     if (game.integrity <= threshold && !game.integrityWarnings.has(threshold)) {
       game.integrityWarnings.add(threshold);
@@ -1070,6 +1451,11 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
   game.particles = game.particles.filter((particle) => particle.life > 0);
   game.bacteria = game.bacteria.filter((bacterium) => !bacterium.dead);
 
+  if (game.experience === 'education') updateEducation(game, dt);
+
+  if (game.experience === 'education') {
+    return;
+  }
   if (game.integrity <= 0) {
     playGameSound(game, 'lose');
     game.mode = 'lost';
@@ -1422,6 +1808,27 @@ function drawMacrophage(ctx, cell, color, reducedMotion) {
 }
 
 function drawNeutrophil(ctx, cell, color, reducedMotion) {
+  if (cell.fatigued > 0 && cell.netosisReplacement) {
+    const fade = clamp(cell.fatigued / 1.25, 0, 1);
+    ctx.save();
+    ctx.globalAlpha = 0.24 + fade * 0.5;
+    ctx.strokeStyle = '#fff1c7';
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([5, 6]);
+    ctx.beginPath();
+    ctx.arc(0, 0, 18 + (1 - fade) * 20, 0, TAU);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#9a6595';
+    for (let index = 0; index < 3; index += 1) {
+      const angle = (index / 3) * TAU + (reducedMotion ? 0 : (1 - fade) * 1.4);
+      ctx.beginPath();
+      ctx.arc(Math.cos(angle) * (12 + (1 - fade) * 16), Math.sin(angle) * 14, 5, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+    return;
+  }
   if (cell.fatigued > 0) {
     const reform = 1 - clamp(cell.fatigued / 1.25, 0, 1);
     const orbit = 8 + (1 - reform) * 15;
@@ -1925,12 +2332,185 @@ function drawEffects(ctx, game) {
   }
 }
 
+function drawEducationActors(ctx, game) {
+  const education = game.education;
+  if (!education || education.stage < 3) return;
+  const nodeX = game.width - 104;
+  const nodeY = 124;
+
+  ctx.save();
+  ctx.globalAlpha = education.stage === 3 ? 1 : 0.72;
+  ctx.fillStyle = 'rgba(92, 63, 130, 0.72)';
+  ctx.strokeStyle = '#e7c8ff';
+  ctx.lineWidth = 2;
+  for (const [offsetX, offsetY, radius] of [
+    [-15, 5, 22],
+    [12, -7, 24],
+    [14, 18, 18],
+  ]) {
+    ctx.beginPath();
+    ctx.arc(nodeX + offsetX, nodeY + offsetY, radius, 0, TAU);
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.fillStyle = '#fff4ff';
+  ctx.font = '800 11px Inter, system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('LYMPH NODE', nodeX, nodeY + 48);
+  ctx.restore();
+
+  for (const target of education.helperTargets) {
+    ctx.save();
+    ctx.translate(target.x, target.y);
+    const highlighted = target.matches && !education.helperMatched;
+    ctx.shadowColor = highlighted ? '#fff1a8' : 'transparent';
+    ctx.shadowBlur = highlighted ? 18 + target.pulse * 12 : 0;
+    ctx.fillStyle = target.matches && education.helperMatched ? '#8df29a' : '#6c75b8';
+    ctx.strokeStyle = highlighted ? '#fff1a8' : 'rgba(239, 226, 255, 0.72)';
+    ctx.lineWidth = highlighted ? 4 : 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 22 * game.cellScale, 0, TAU);
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = '#f4e9ff';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    if (target.shape === 0) {
+      ctx.arc(0, 0, 7, 0, Math.PI);
+    } else if (target.shape === 1) {
+      ctx.moveTo(-8, 6);
+      ctx.lineTo(0, -7);
+      ctx.lineTo(8, 6);
+    } else {
+      ctx.moveTo(-8, -5);
+      ctx.quadraticCurveTo(0, 10, 8, -5);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  const courier = education.courier;
+  if (courier) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(231, 200, 255, 0.48)';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([8, 8]);
+    ctx.beginPath();
+    ctx.moveTo(courier.startX, courier.startY);
+    ctx.lineTo(courier.targetX, courier.targetY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.translate(courier.x, courier.y);
+    const pulse = game.reducedMotion ? 1 : 1 + Math.sin(courier.phase) * 0.05;
+    ctx.scale(game.cellScale * pulse, game.cellScale * pulse);
+    ctx.strokeStyle = '#d9fff7';
+    ctx.lineWidth = 5;
+    ctx.lineCap = 'round';
+    for (let index = 0; index < 8; index += 1) {
+      const angle = (index / 8) * TAU;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(angle) * 13, Math.sin(angle) * 13);
+      ctx.lineTo(Math.cos(angle) * 34, Math.sin(angle) * 34);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#62e2c7';
+    ctx.strokeStyle = '#176d78';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, 0, 22, 0, TAU);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#ef507d';
+    for (let index = 0; index < 4; index += 1) {
+      const angle = (index / 4) * TAU + 0.4;
+      ctx.beginPath();
+      ctx.arc(Math.cos(angle) * 17, Math.sin(angle) * 17, 4, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  const plasmaCell = education.plasmaCell;
+  if (plasmaCell) {
+    ctx.save();
+    ctx.translate(plasmaCell.x, plasmaCell.y);
+    const pulse = game.reducedMotion ? 1 : 1 + Math.sin(plasmaCell.phase) * 0.045;
+    ctx.scale(game.cellScale * pulse, game.cellScale * pulse);
+    ctx.fillStyle = '#c58cff';
+    ctx.strokeStyle = '#fff1a8';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, 0, 27, 0, TAU);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#5b397d';
+    ctx.beginPath();
+    ctx.ellipse(-4, 2, 13, 10, -0.4, 0, TAU);
+    ctx.fill();
+    for (let index = 0; index < 3; index += 1) {
+      const angle = (index / 3) * TAU + plasmaCell.phase * 0.2;
+      drawAntibody(ctx, Math.cos(angle) * 42, Math.sin(angle) * 42, 0.55);
+    }
+    ctx.restore();
+    ctx.save();
+    ctx.fillStyle = '#fff4ff';
+    ctx.font = '800 11px Inter, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('PLASMA CELL', plasmaCell.x, plasmaCell.y + 52);
+    ctx.restore();
+  }
+
+  for (const memoryCell of education.memoryCells) {
+    ctx.save();
+    ctx.translate(memoryCell.x, memoryCell.y);
+    const pulse = game.reducedMotion ? 1 : 1 + Math.sin(memoryCell.phase) * 0.06;
+    ctx.scale(game.cellScale * pulse, game.cellScale * pulse);
+    ctx.fillStyle = memoryCell.color;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, 0, 20, 0, TAU);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#3d416d';
+    ctx.beginPath();
+    ctx.arc(-3, 1, 8, 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = '#fff1a8';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 27, 0, TAU);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
 function drawGame(ctx, game) {
   drawBackground(ctx, game);
   for (const hostCell of game.hostCells) drawHostCell(ctx, hostCell, game);
   for (const bacterium of game.bacteria) drawBacterium(ctx, bacterium, game.bacteriaScale);
+  drawEducationActors(ctx, game);
   for (const cell of game.defenders) drawDefender(ctx, cell, game);
   drawEffects(ctx, game);
+}
+
+function educationProgressLabel(game) {
+  const education = game.education;
+  if (!education) return '';
+  const player = game.defenders.find((cell) => cell.isPlayer);
+  if (education.stage === 0) return `${Math.round(education.progress * 100)}% to the alarm`;
+  if (education.stage === 1) {
+    return `${Math.min(4, Math.max(0, (player?.kills ?? 0) - education.stageStartKills))}/4 engulfed`;
+  }
+  if (education.stage === 2) {
+    return `${Math.min(3, education.primaryActions)}/3 toxin · ${Math.min(1, education.specialActions)}/1 net`;
+  }
+  if (education.stage === 3) return `${Math.round(education.progress * 100)}% to the lymph node`;
+  if (education.stage === 4) {
+    return `${education.helperMatched ? 'Antigen matched' : 'Find the glowing match'} · ${Math.min(1, education.specialActions)}/1 rally`;
+  }
+  if (education.stage === 5) return `${game.bacteria.length} bacteria remain`;
+  return `${Math.round(education.progress * 100)}% faster response`;
 }
 
 function snapshotFromGame(game) {
@@ -1953,6 +2533,7 @@ function snapshotFromGame(game) {
     }));
   return {
     mode: game.mode,
+    experience: game.experience,
     phase: game.phase,
     timeLeft: Math.ceil(game.timeLeft),
     nextDivision: Math.max(0, Math.ceil(game.nextDivision)),
@@ -1965,11 +2546,15 @@ function snapshotFromGame(game) {
     hostCellsSaved: game.hostCellsSaved,
     hostCellsLost: game.hostCellsLost,
     criticalTissue: game.criticalTissue,
+    lessonStage: game.education?.stage ?? 0,
+    lessonProgress: game.education?.progress ?? 0,
+    lessonProgressLabel: educationProgressLabel(game),
   };
 }
 
 const INITIAL_SNAPSHOT = {
   mode: 'setup',
+  experience: 'defense',
   phase: 'innate',
   timeLeft: ROUND_TIME,
   nextDivision: 0,
@@ -1982,6 +2567,9 @@ const INITIAL_SNAPSHOT = {
   hostCellsSaved: 0,
   hostCellsLost: 0,
   criticalTissue: 0,
+  lessonStage: 0,
+  lessonProgress: 0,
+  lessonProgressLabel: '',
 };
 
 export function ImmunePage() {
@@ -1997,7 +2585,11 @@ export function ImmunePage() {
   const touchInputRef = useRef({ x: 0, y: 0 });
   const touchPointerRef = useRef(null);
   const touchStickRef = useRef(null);
-  const configRef = useRef({ playerCount: 1, roles: ['macrophage', 'neutrophil'] });
+  const configRef = useRef({
+    experience: 'defense',
+    playerCount: 1,
+    roles: ['macrophage', 'neutrophil'],
+  });
   const [config, setConfig] = useState(configRef.current);
   const [snapshot, setSnapshot] = useState(INITIAL_SNAPSHOT);
   const [soundMuted, setSoundMuted] = useState(readSoundPreference);
@@ -2099,6 +2691,27 @@ export function ImmunePage() {
           hostCell.baseY = clamp(hostCell.baseY * scaleY, 100, height - 44);
           hostCell.y = clamp(hostCell.y * scaleY, 78, height - 24);
         }
+        if (game.education?.courier) {
+          const courier = game.education.courier;
+          courier.startX = game.breach.x;
+          courier.startY = game.breach.y;
+          courier.targetX = width - 104;
+          courier.targetY = 124;
+          courier.x = clamp(courier.x * scaleX, 24, width - 24);
+          courier.y = clamp(courier.y * scaleY, 78, height - 24);
+        }
+        if (game.education?.plasmaCell) {
+          game.education.plasmaCell.x = width - 104;
+          game.education.plasmaCell.y = 124;
+        }
+        for (const target of game.education?.helperTargets ?? []) {
+          target.x = clamp(target.x * scaleX, 30, width - 30);
+          target.y = clamp(target.y * scaleY, 90, height - 30);
+        }
+        for (const memoryCell of game.education?.memoryCells ?? []) {
+          memoryCell.x = clamp(memoryCell.x * scaleX, 30, width - 30);
+          memoryCell.y = clamp(memoryCell.y * scaleY, 90, height - 30);
+        }
       } else {
         previewRef.current = null;
       }
@@ -2170,9 +2783,17 @@ export function ImmunePage() {
           });
           const fresh = (buttonIndex) =>
             pressed.has(buttonIndex) && !pressedRef.current[index].has(buttonIndex);
+          const up = fresh(12);
+          const down = fresh(13);
           const left = fresh(14) || fresh(4);
           const right = fresh(15) || fresh(5);
-          if (left || right) {
+          if (index === 0 && (up || down)) {
+            updateConfig((current) => ({
+              ...current,
+              experience: current.experience === 'education' ? 'defense' : 'education',
+              playerCount: current.experience === 'defense' ? 1 : current.playerCount,
+            }));
+          } else if ((left || right) && configRef.current.experience === 'defense') {
             updateConfig((current) => {
               const roles = [...current.roles];
               roles[index] = cycleRole(roles[index], left ? -1 : 1);
@@ -2184,7 +2805,11 @@ export function ImmunePage() {
             });
           }
           if (fresh(0)) {
-            if (index === 1 && configRef.current.playerCount === 1) {
+            if (
+              configRef.current.experience === 'defense' &&
+              index === 1 &&
+              configRef.current.playerCount === 1
+            ) {
               updateConfig((current) => ({ ...current, playerCount: 2 }));
             } else {
               startGame();
@@ -2208,17 +2833,32 @@ export function ImmunePage() {
         return;
       }
       if (!gameRef.current) {
-        if (event.code === 'Digit1' || event.code === 'Digit2') {
+        if (event.code === 'KeyM') {
+          updateConfig((current) => ({
+            ...current,
+            experience: current.experience === 'education' ? 'defense' : 'education',
+            playerCount: current.experience === 'defense' ? 1 : current.playerCount,
+          }));
+        } else if (
+          configRef.current.experience === 'defense' &&
+          (event.code === 'Digit1' || event.code === 'Digit2')
+        ) {
           updateConfig((current) => ({
             ...current,
             playerCount: Number(event.code.slice(-1)),
           }));
-        } else if (event.code === 'KeyQ' || event.code === 'KeyE') {
+        } else if (
+          configRef.current.experience === 'defense' &&
+          (event.code === 'KeyQ' || event.code === 'KeyE')
+        ) {
           updateConfig((current) => ({
             ...current,
             roles: [cycleRole(current.roles[0], event.code === 'KeyQ' ? -1 : 1), current.roles[1]],
           }));
-        } else if (event.code === 'BracketLeft' || event.code === 'BracketRight') {
+        } else if (
+          configRef.current.experience === 'defense' &&
+          (event.code === 'BracketLeft' || event.code === 'BracketRight')
+        ) {
           updateConfig((current) => ({
             ...current,
             roles: [
@@ -2342,6 +2982,8 @@ export function ImmunePage() {
     event.currentTarget.dataset.pressed = 'false';
   }, []);
 
+  const currentLesson = LEARNING_STAGES[snapshot.lessonStage] ?? LEARNING_STAGES[0];
+
   return (
     <main className="game-route game-route--immune">
       <canvas className="immune-canvas" ref={canvasRef} />
@@ -2364,16 +3006,27 @@ export function ImmunePage() {
       </nav>
 
       {snapshot.mode !== 'setup' && (
-        <section className="immune-hud">
+        <section
+          className={`immune-hud${snapshot.experience === 'education' ? ' immune-hud--learning' : ''}`}
+        >
           <div className="immune-hud__mission">
-            <strong>{snapshot.phase === 'innate' ? 'Hold the breach' : 'Antibody response'}</strong>
+            <strong>
+              {snapshot.experience === 'education'
+                ? currentLesson.title
+                : snapshot.phase === 'innate'
+                  ? 'Hold the breach'
+                  : 'Antibody response'}
+            </strong>
             <span>
-              {snapshot.phase === 'innate'
-                ? `Big guns in ${snapshot.timeLeft}s`
-                : 'Antibodies are clumping invaders'}
+              {snapshot.experience === 'education'
+                ? currentLesson.objective
+                : snapshot.phase === 'innate'
+                  ? `Big guns in ${snapshot.timeLeft}s`
+                  : 'Antibodies are clumping invaders'}
             </span>
           </div>
           <div className="immune-hud__stats">
+            {snapshot.experience === 'education' && <span>{currentLesson.cell}</span>}
             <span>
               <b>{snapshot.bacteria}</b> bacteria
             </span>
@@ -2383,34 +3036,76 @@ export function ImmunePage() {
             >
               <b>{snapshot.integrity}%</b> tissue
             </span>
-            {snapshot.criticalTissue > 0 && (
+            {snapshot.experience === 'defense' && snapshot.criticalTissue > 0 && (
               <span className="immune-hud__critical">{snapshot.criticalTissue} critical zones</span>
             )}
-            {snapshot.phase === 'innate' && (
+            {snapshot.experience === 'education' ? (
+              <span className="immune-hud__division">{snapshot.lessonProgressLabel}</span>
+            ) : snapshot.phase === 'innate' ? (
               <span className="immune-hud__division">Division in {snapshot.nextDivision}s</span>
-            )}
+            ) : null}
           </div>
           <div
             className="immune-response-track"
-            aria-label="Adaptive response progress"
-            aria-valuemax={ROUND_TIME}
+            aria-label={
+              snapshot.experience === 'education'
+                ? 'Guided immune response progress'
+                : 'Adaptive response progress'
+            }
+            aria-valuemax={
+              snapshot.experience === 'education' ? LEARNING_STAGES.length : ROUND_TIME
+            }
             aria-valuemin={0}
             aria-valuenow={
-              snapshot.phase === 'adaptive' ? ROUND_TIME : ROUND_TIME - snapshot.timeLeft
+              snapshot.experience === 'education'
+                ? snapshot.lessonStage + snapshot.lessonProgress
+                : snapshot.phase === 'adaptive'
+                  ? ROUND_TIME
+                  : ROUND_TIME - snapshot.timeLeft
             }
             aria-valuetext={
-              snapshot.phase === 'adaptive'
-                ? 'Antibodies have arrived'
-                : `${snapshot.timeLeft} seconds until antibodies arrive`
+              snapshot.experience === 'education'
+                ? `${currentLesson.title}: ${snapshot.lessonProgressLabel}`
+                : snapshot.phase === 'adaptive'
+                  ? 'Antibodies have arrived'
+                  : `${snapshot.timeLeft} seconds until antibodies arrive`
             }
             role="progressbar"
           >
             <span
               style={{
-                transform: `scaleX(${snapshot.phase === 'adaptive' ? 1 : 1 - snapshot.timeLeft / ROUND_TIME})`,
+                transform: `scaleX(${
+                  snapshot.experience === 'education'
+                    ? (snapshot.lessonStage + snapshot.lessonProgress) / LEARNING_STAGES.length
+                    : snapshot.phase === 'adaptive'
+                      ? 1
+                      : 1 - snapshot.timeLeft / ROUND_TIME
+                })`,
               }}
             />
           </div>
+          {snapshot.experience === 'education' && (
+            <div className="immune-learning-guide">
+              <ol aria-label="Immune response stages">
+                {LEARNING_STAGES.map((stage, index) => (
+                  <li
+                    className={
+                      index < snapshot.lessonStage
+                        ? 'is-complete'
+                        : index === snapshot.lessonStage
+                          ? 'is-current'
+                          : ''
+                    }
+                    key={stage.id}
+                  >
+                    <span>{index + 1}</span>
+                    <small className="immune-learning-guide__cell">{stage.cell}</small>
+                  </li>
+                ))}
+              </ol>
+              <p>{currentLesson.fact}</p>
+            </div>
+          )}
         </section>
       )}
 
@@ -2514,60 +3209,109 @@ export function ImmunePage() {
           </div>
           <h1 id="immune-title">Immune</h1>
           <p className="immune-setup__intro">
-            Damaged cells are crying for help. Choose your defenders, then hold back the multiplying
-            bacteria until antibodies arrive.
+            {config.experience === 'education'
+              ? 'Guide each part of the response and learn how your body turns a local alarm into lasting immune memory.'
+              : 'Damaged cells are crying for help. Choose your defenders, then hold back the multiplying bacteria until antibodies arrive.'}
           </p>
 
-          <fieldset className="immune-count">
-            <legend>Local defenders</legend>
-            {[1, 2].map((count) => (
-              <button
-                className={config.playerCount === count ? 'is-selected' : ''}
-                key={count}
-                onClick={() => updateConfig((current) => ({ ...current, playerCount: count }))}
-                type="button"
-              >
-                {count} player{count > 1 ? 's' : ''}
-              </button>
-            ))}
+          <fieldset className="immune-mode-select">
+            <legend>Choose a mode</legend>
+            <button
+              aria-pressed={config.experience === 'education'}
+              className={config.experience === 'education' ? 'is-selected' : ''}
+              onClick={() =>
+                updateConfig((current) => ({
+                  ...current,
+                  experience: 'education',
+                  playerCount: 1,
+                }))
+              }
+              type="button"
+            >
+              <strong>Guided response</strong>
+              <small>Solo · Learn the immune cycle by playing every phase</small>
+            </button>
+            <button
+              aria-pressed={config.experience === 'defense'}
+              className={config.experience === 'defense' ? 'is-selected' : ''}
+              onClick={() => updateConfig((current) => ({ ...current, experience: 'defense' }))}
+              type="button"
+            >
+              <strong>Defense round</strong>
+              <small>1–2 players · Choose a cell and survive the breach</small>
+            </button>
           </fieldset>
 
-          <div className="immune-role-selectors">
-            {['player-1', 'player-2'].slice(0, config.playerCount).map((playerKey, playerIndex) => (
-              <fieldset
-                className={`immune-role-picker immune-role-picker--p${playerIndex + 1}`}
-                key={playerKey}
-              >
-                <legend>Player {playerIndex + 1}</legend>
-                {ROLE_KEYS.map((role) => (
+          {config.experience === 'defense' ? (
+            <>
+              <fieldset className="immune-count">
+                <legend>Local defenders</legend>
+                {[1, 2].map((count) => (
                   <button
-                    className={config.roles[playerIndex] === role ? 'is-selected' : ''}
-                    key={role}
-                    onClick={() => changeRole(playerIndex, role)}
+                    className={config.playerCount === count ? 'is-selected' : ''}
+                    key={count}
+                    onClick={() => updateConfig((current) => ({ ...current, playerCount: count }))}
                     type="button"
                   >
-                    <span
-                      className={`immune-role-icon immune-role-icon--${role}`}
-                      aria-hidden="true"
-                    />
-                    <span>
-                      <strong>{ROLES[role].name}</strong>
-                      <small>{ROLES[role].description}</small>
-                    </span>
+                    {count} player{count > 1 ? 's' : ''}
                   </button>
                 ))}
               </fieldset>
-            ))}
-          </div>
+
+              <div className="immune-role-selectors">
+                {['player-1', 'player-2']
+                  .slice(0, config.playerCount)
+                  .map((playerKey, playerIndex) => (
+                    <fieldset
+                      className={`immune-role-picker immune-role-picker--p${playerIndex + 1}`}
+                      key={playerKey}
+                    >
+                      <legend>Player {playerIndex + 1}</legend>
+                      {ROLE_KEYS.map((role) => (
+                        <button
+                          className={config.roles[playerIndex] === role ? 'is-selected' : ''}
+                          key={role}
+                          onClick={() => changeRole(playerIndex, role)}
+                          type="button"
+                        >
+                          <span
+                            className={`immune-role-icon immune-role-icon--${role}`}
+                            aria-hidden="true"
+                          />
+                          <span>
+                            <strong>{ROLES[role].name}</strong>
+                            <small>{ROLES[role].description}</small>
+                          </span>
+                        </button>
+                      ))}
+                    </fieldset>
+                  ))}
+              </div>
+            </>
+          ) : (
+            <ol className="immune-journey-preview" aria-label="Guided response chapters">
+              {LEARNING_STAGES.map((stage, index) => (
+                <li key={stage.id}>
+                  <span>{index + 1}</span>
+                  <div>
+                    <strong>{stage.cell}</strong>
+                    <small>{stage.title}</small>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
 
           <button className="immune-start" onClick={startGame} type="button">
-            Defend the tissue
+            {config.experience === 'education' ? 'Begin guided response' : 'Defend the tissue'}
           </button>
           <div className="immune-controls">
             <span>P1: WASD, F action, G special</span>
-            {config.playerCount === 2 && <span>P2: Arrows, Enter action, / special</span>}
+            {config.experience === 'defense' && config.playerCount === 2 && (
+              <span>P2: Arrows, Enter action, / special</span>
+            )}
             <span>Gamepad: Stick, A action, X or B special</span>
-            <span>Setup: D-pad picks a cell, A starts or joins</span>
+            <span>Setup: M or D-pad up/down changes mode</span>
             <span>Touch: joystick and action buttons control P1</span>
           </div>
         </section>
@@ -2576,48 +3320,88 @@ export function ImmunePage() {
       {(snapshot.mode === 'won' || snapshot.mode === 'lost') && (
         <section className="immune-result" aria-labelledby="immune-result-title">
           <p className="immune-result__status">
-            {snapshot.mode === 'won' ? 'Breach contained' : 'Tissue overwhelmed'}
+            {snapshot.experience === 'education' && snapshot.mode === 'won'
+              ? 'Response complete'
+              : snapshot.mode === 'won'
+                ? 'Breach contained'
+                : 'Tissue overwhelmed'}
           </p>
           <h1 id="immune-result-title">
-            {snapshot.mode === 'won'
-              ? snapshot.earlyClear
-                ? 'Innate victory!'
-                : 'The big guns finished it.'
-              : 'The bacteria broke through.'}
+            {snapshot.experience === 'education' && snapshot.mode === 'won'
+              ? 'Your immune system remembers.'
+              : snapshot.mode === 'won'
+                ? snapshot.earlyClear
+                  ? 'Innate victory!'
+                  : 'The big guns finished it.'
+                : 'The bacteria broke through.'}
           </h1>
           <p>
-            {snapshot.mode === 'won'
-              ? snapshot.earlyClear
-                ? 'Your squad eliminated every bacterium before the adaptive response was needed.'
-                : 'Antibodies pinned the survivors while the cell squad cleared the wound.'
-              : 'Try mixing cell roles and use special actions when bacteria divide.'}
+            {snapshot.experience === 'education' && snapshot.mode === 'won'
+              ? 'Most activated cells shut down after the threat is gone. A few memory B and T cells remain, ready to recognize this bacterium much faster next time.'
+              : snapshot.mode === 'won'
+                ? snapshot.earlyClear
+                  ? 'Your squad eliminated every bacterium before the adaptive response was needed.'
+                  : 'Antibodies pinned the survivors while the cell squad cleared the wound.'
+                : 'Try mixing cell roles and use special actions when bacteria divide.'}
           </p>
+          {snapshot.experience === 'education' && snapshot.mode === 'won' && (
+            <ol className="immune-response-recap" aria-label="Immune response recap">
+              {LEARNING_STAGES.map((stage, index) => (
+                <li key={stage.id}>
+                  <span>{index + 1}</span>
+                  <div>
+                    <strong>{stage.cell}</strong>
+                    <small>{stage.title}</small>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
           <div className="immune-result__stats">
-            <span>
-              <strong>{snapshot.destroyed}</strong> destroyed
-            </span>
-            <span>
-              <strong>{snapshot.integrity}%</strong> tissue left
-            </span>
-            <span>
-              <strong>{snapshot.antibodyHits}</strong> antibody hits
-            </span>
-            <span>
-              <strong>{snapshot.hostCellsSaved}</strong> cells saved
-            </span>
-            <span>
-              <strong>{snapshot.hostCellsLost}</strong> cells lost
-            </span>
+            {snapshot.experience === 'education' && snapshot.mode === 'won' ? (
+              <>
+                <span>
+                  <strong>{LEARNING_STAGES.length}</strong> response stages
+                </span>
+                <span>
+                  <strong>{snapshot.destroyed}</strong> bacteria cleared
+                </span>
+                <span>
+                  <strong>{snapshot.antibodyHits}</strong> antibody hits
+                </span>
+                <span>
+                  <strong>Formed</strong> immune memory
+                </span>
+              </>
+            ) : (
+              <>
+                <span>
+                  <strong>{snapshot.destroyed}</strong> destroyed
+                </span>
+                <span>
+                  <strong>{snapshot.integrity}%</strong> tissue left
+                </span>
+                <span>
+                  <strong>{snapshot.antibodyHits}</strong> antibody hits
+                </span>
+                <span>
+                  <strong>{snapshot.hostCellsSaved}</strong> cells saved
+                </span>
+                <span>
+                  <strong>{snapshot.hostCellsLost}</strong> cells lost
+                </span>
+              </>
+            )}
           </div>
           <div className="immune-result__actions">
             <button className="immune-start" onClick={startGame} type="button">
-              Defend again
+              {snapshot.experience === 'education' ? 'Replay the response' : 'Defend again'}
             </button>
             <button className="immune-secondary" onClick={returnToSetup} type="button">
-              Change cells
+              {snapshot.experience === 'education' ? 'Choose another mode' : 'Change cells'}
             </button>
           </div>
-          <small>Press R or Enter to defend again</small>
+          <small>Press R or Enter to play again</small>
         </section>
       )}
     </main>

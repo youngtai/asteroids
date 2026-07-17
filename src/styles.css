@@ -1137,6 +1137,96 @@ a {
   transition: transform 180ms linear;
 }
 
+.immune-hud--learning {
+  width: min(720px, calc(100vw - 210px));
+}
+
+.immune-learning-guide {
+  width: min(620px, 100%);
+  margin-top: 8px;
+  padding: 8px 10px 9px;
+  border: 1px solid rgba(255, 232, 244, 0.2);
+  border-radius: 8px;
+  background: rgba(21, 17, 43, 0.84);
+  backdrop-filter: blur(10px);
+}
+
+.immune-learning-guide ol {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.immune-learning-guide li {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.immune-learning-guide li:not(:last-child)::after {
+  content: "";
+  height: 2px;
+  flex: 1;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.immune-learning-guide li.is-complete:not(:last-child)::after {
+  background: var(--immune-green);
+}
+
+.immune-learning-guide li > span {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 0.7rem;
+  font-weight: 900;
+}
+
+.immune-learning-guide li.is-complete > span {
+  background: var(--immune-green);
+  color: #102b24;
+}
+
+.immune-learning-guide li.is-current {
+  color: #fff;
+}
+
+.immune-learning-guide li.is-current > span {
+  background: var(--immune-gold);
+  color: #21142d;
+  box-shadow: 0 0 0 3px rgba(255, 228, 141, 0.18);
+}
+
+.immune-learning-guide__cell {
+  overflow: hidden;
+  max-width: 8ch;
+  font-size: 0.66rem;
+  font-weight: 800;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.immune-learning-guide p {
+  max-width: 68ch;
+  margin: 8px 0 0;
+  color: #f1e5f4;
+  font-size: 0.78rem;
+  line-height: 1.38;
+}
+
 .immune-touch-controls {
   display: none;
   position: fixed;
@@ -1356,11 +1446,64 @@ a {
   line-height: 1.48;
 }
 
+.immune-mode-select,
 .immune-count,
 .immune-role-picker {
   margin: 0;
   padding: 0;
   border: 0;
+}
+
+.immune-mode-select {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  margin-bottom: 18px;
+}
+
+.immune-mode-select legend {
+  margin-bottom: 8px;
+  color: #fff;
+  font-weight: 850;
+}
+
+.immune-mode-select button {
+  display: flex;
+  min-height: 66px;
+  flex-direction: column;
+  justify-content: center;
+  padding: 10px 12px;
+  border: 1px solid var(--immune-line);
+  border-radius: 8px;
+  background: rgba(59, 43, 82, 0.8);
+  color: var(--immune-ink);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.immune-mode-select button:hover {
+  border-color: rgba(255, 255, 255, 0.64);
+  background: rgba(79, 56, 105, 0.95);
+}
+
+.immune-mode-select button.is-selected {
+  border-color: var(--immune-gold);
+  background: rgba(106, 76, 105, 0.98);
+  box-shadow: inset 0 -3px 0 var(--immune-gold);
+}
+
+.immune-mode-select strong {
+  font-size: 0.96rem;
+}
+
+.immune-mode-select small {
+  margin-top: 3px;
+  color: var(--immune-muted);
+  line-height: 1.3;
 }
 
 .immune-count {
@@ -1512,6 +1655,62 @@ a {
   background: #8df29a;
 }
 
+.immune-journey-preview {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.immune-journey-preview li {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 9px;
+  border-radius: 7px;
+  background: rgba(58, 42, 80, 0.58);
+}
+
+.immune-journey-preview li > span {
+  display: grid;
+  width: 27px;
+  height: 27px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 228, 141, 0.14);
+  color: var(--immune-gold);
+  font-size: 0.75rem;
+  font-weight: 900;
+}
+
+.immune-journey-preview div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.immune-journey-preview strong {
+  overflow: hidden;
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.immune-journey-preview small {
+  margin-top: 2px;
+  color: var(--immune-muted);
+  font-size: 0.67rem;
+  line-height: 1.2;
+}
+
+.immune-journey-preview .immune-journey-preview__memory {
+  background: rgba(56, 111, 89, 0.52);
+}
+
 .immune-start,
 .immune-secondary {
   padding: 0 18px;
@@ -1531,6 +1730,7 @@ a {
 }
 
 .immune-count button:focus-visible,
+.immune-mode-select button:focus-visible,
 .immune-role-picker button:focus-visible,
 .immune-start:focus-visible,
 .immune-secondary:focus-visible {
@@ -1627,6 +1827,52 @@ a {
 
 .immune-result__actions .immune-start {
   margin: 0;
+}
+
+.immune-response-recap {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 5px;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.immune-response-recap li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  background: rgba(58, 42, 80, 0.68);
+  color: #f4e9f7;
+  font-size: 0.72rem;
+}
+
+.immune-response-recap li > span {
+  display: grid;
+  width: 19px;
+  height: 19px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--immune-green);
+  color: #102b24;
+  font-size: 0.65rem;
+  font-weight: 900;
+}
+
+.immune-response-recap div {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+.immune-response-recap small {
+  margin-top: 1px;
+  color: var(--immune-muted);
+  font-size: 0.61rem;
+  font-weight: 650;
 }
 
 .immune-result > small {
@@ -1744,6 +1990,11 @@ a {
     width: calc(100vw - 155px);
   }
 
+  .immune-hud--learning {
+    top: 70px;
+    width: calc(100vw - 20px);
+  }
+
   .immune-hud__mission,
   .immune-hud__stats {
     flex-wrap: wrap;
@@ -1757,6 +2008,23 @@ a {
     font-size: 0.72rem;
   }
 
+  .immune-learning-guide {
+    padding: 7px 8px;
+  }
+
+  .immune-learning-guide__cell {
+    display: none;
+  }
+
+  .immune-learning-guide li.is-current .immune-learning-guide__cell {
+    display: block;
+    max-width: 7ch;
+  }
+
+  .immune-learning-guide p {
+    font-size: 0.72rem;
+  }
+
   .immune-setup {
     top: 56px;
     max-height: calc(100dvh - 66px);
@@ -1767,6 +2035,14 @@ a {
   .immune-setup h1,
   .immune-result h1 {
     font-size: 2.15rem;
+  }
+
+  .immune-mode-select {
+    grid-template-columns: 1fr;
+  }
+
+  .immune-journey-preview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .immune-role-selectors {
@@ -1820,6 +2096,15 @@ a {
 }
 
 @media (max-height: 520px) and (orientation: landscape) {
+  .immune-hud--learning {
+    top: 10px;
+    width: calc(100vw - 155px);
+  }
+
+  .immune-learning-guide p {
+    display: none;
+  }
+
   .immune-touch-joystick {
     width: 102px;
     height: 102px;
