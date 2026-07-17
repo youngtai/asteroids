@@ -45,52 +45,105 @@ const PLAYER_COLORS = ['#ffffff', '#ff83cf'];
 const LEARNING_STAGES = [
   {
     id: 'alarm',
-    title: 'Tissue alarm',
-    cell: 'Resident macrophage',
-    objective: 'Move into the pulsing breach',
-    fact: 'Injured cells release chemical distress signals that wake nearby immune cells.',
+    icon: '🚨',
+    ctaIcon: '👣',
+    progressIcons: ['👣', '👣', '👣'],
+    title: 'Germs got in!',
+    cell: 'Mo the macrophage',
+    objective: 'Follow the glow',
+    fact: 'Hurt cells call nearby immune cells for help.',
+    narration: "Uh-oh! Your body got an owie, and germs got in. Let's go help!",
+    cta: 'Go',
   },
   {
     id: 'macrophage',
-    title: 'Resident patrol',
+    icon: '😋',
+    ctaIcon: '😋',
+    progressIcons: ['🦠', '🦠', '🦠', '🦠'],
+    title: 'Chomp the germs!',
     cell: 'Macrophage',
-    objective: 'Engulf 4 bacteria',
-    fact: 'Macrophages live in tissue and swallow invaders through phagocytosis.',
+    objective: 'Gobble the pink germs',
+    fact: 'Macrophages wrap around germs and gobble them up.',
+    narration: "Hi, I'm Mo! I'm a macrophage, a germ eater. Chomp, chomp!",
+    cta: 'Eat',
   },
   {
     id: 'neutrophil',
-    title: 'Fast reinforcement',
+    icon: '⚡',
+    ctaIcon: '💦',
+    progressIcons: ['💧', '💧', '💧', '🕸️'],
+    title: 'Zip sprays germs!',
     cell: 'Neutrophil',
-    objective: 'Fire 3 toxin bursts and cast 1 DNA net',
-    fact: 'Neutrophils arrive quickly, but their toxic weapons can also damage healthy tissue.',
+    objective: 'Spray the germs',
+    fact: 'Neutrophils are fast, but their powerful tools can hurt healthy cells too.',
+    narration: 'This is Zip, a neutrophil. Zip is super fast! Spray the germs.',
+    cta: 'Spray',
+    next: {
+      icon: '🕸️',
+      ctaIcon: '🕸️',
+      title: 'Throw the sticky net!',
+      objective: 'Catch lots at once',
+      narration: 'Great spraying! Now throw a sticky net. It catches lots of germs at once!',
+      cta: 'Net',
+    },
   },
   {
     id: 'dendritic',
-    title: 'Carry the evidence',
+    icon: '🔎',
+    ctaIcon: '🛡️',
+    progressIcons: ['🛡️', '🛡️', '🛡️', '🏠'],
+    title: 'Guard the runner!',
     cell: 'Dendritic cell',
-    objective: 'Protect the courier to the lymph node',
-    fact: 'Dendritic cells carry bacterial fragments to a lymph node to find a matching T cell.',
+    objective: 'Keep the runner safe',
+    fact: 'A dendritic cell carries a tiny germ clue to the lymph node.',
+    narration: 'This little runner has a piece of a germ. Keep it safe on the way to helper base!',
+    cta: 'Protect',
   },
   {
     id: 'helper',
-    title: 'Days pass: find a match',
+    icon: '🧩',
+    ctaIcon: '✨',
+    progressIcons: ['✨', '⭐'],
+    title: 'Find the glowing helper!',
     cell: 'Helper T cell',
-    objective: 'Match the antigen, then rally the squad',
-    fact: 'Over several days, one matching helper T cell activates, energizes macrophages, and authorizes B cells.',
+    objective: 'Touch the one that glows',
+    fact: 'After a few days, one helper T cell matches the germ clue.',
+    narration: 'A few sleeps go by. We need the right helper T cell. Touch the one that glows!',
+    cta: 'Match',
+    next: {
+      icon: '⭐',
+      ctaIcon: '⭐',
+      title: 'Wake the sleepy eaters!',
+      objective: 'Send a big cheer',
+      narration: "That's the one! Cheer to wake up the sleepy germ eaters.",
+      cta: 'Cheer',
+    },
   },
   {
     id: 'antibodies',
-    title: 'Antibody cleanup',
+    icon: '🫧',
+    ctaIcon: '😋',
+    progressIcons: ['🦠', '🦠', '🦠', '🦠', '🦠'],
+    title: 'Sticky stars!',
     cell: 'B cell + macrophage',
-    objective: 'Engulf the antibody-clumped bacteria',
-    fact: 'Plasma cells release antibodies that tag and clump invaders for easy cleanup.',
+    objective: 'Gobble the stuck germs',
+    fact: 'B cells make sticky antibodies that grab germs together.',
+    narration:
+      'The helper made sticky stars called antibodies. They glue germs together. Gobble them!',
+    cta: 'Eat',
   },
   {
     id: 'memory',
-    title: 'A faster second response',
+    icon: '⭐',
+    ctaIcon: '👀',
+    progressIcons: ['⭐', '⭐', '⭐', '⭐', '⭐'],
+    title: 'The body remembers!',
     cell: 'Memory B + T cells',
-    objective: 'Watch the same bacterium return',
-    fact: 'Memory cells remain after the battle and recognize the same invader much faster next time.',
+    objective: 'Watch the fast cleanup',
+    fact: 'Memory cells remember this germ and fight it faster next time.',
+    narration:
+      'Some helpers remember these germs. If they come back, the body can fight super fast!',
+    cta: 'Watch',
   },
 ];
 
@@ -494,7 +547,7 @@ function makeGame(width, height, config) {
   const arenaScale = getArenaScale(width, height);
   const experience = config.experience === 'education' ? 'education' : 'defense';
   const game = {
-    mode: 'playing',
+    mode: experience === 'education' ? 'tour' : 'playing',
     experience,
     phase: 'innate',
     width,
@@ -532,6 +585,7 @@ function makeGame(width, height, config) {
       experience === 'education'
         ? {
             stage: 0,
+            beat: 0,
             stageElapsed: 0,
             progress: 0,
             primaryActions: 0,
@@ -640,6 +694,14 @@ function recordEducationAction(game, defender, action) {
 
 function firePrimary(game, defender) {
   if (game.mode !== 'playing' || defender.actionCd > 0 || defender.fatigued > 0) return;
+  if (
+    game.experience === 'education' &&
+    game.education?.stage === 2 &&
+    game.education.beat === 1 &&
+    defender.isPlayer
+  ) {
+    return;
+  }
   if (defender.role === 'macrophage' && defender.exhausted > 0) return;
   defender.actionPulse = 0.34;
 
@@ -690,7 +752,11 @@ function firePrimary(game, defender) {
     return;
   }
 
-  if (game.experience === 'education' && game.education?.stage === 4) {
+  if (
+    game.experience === 'education' &&
+    game.education?.stage === 4 &&
+    defender.role === 'helper'
+  ) {
     defender.actionCd = 0.42;
     const target = game.education.helperTargets
       .map((candidate) => ({ candidate, distance: distance(defender, candidate) }))
@@ -773,6 +839,14 @@ function fireSpecial(game, defender) {
   if (game.mode !== 'playing' || defender.specialCd > 0 || defender.fatigued > 0) return;
   if (
     game.experience === 'education' &&
+    game.education?.stage === 2 &&
+    game.education.beat === 0 &&
+    defender.isPlayer
+  ) {
+    return;
+  }
+  if (
+    game.experience === 'education' &&
     game.education?.stage === 4 &&
     defender.role === 'helper' &&
     !game.education.helperMatched
@@ -845,14 +919,32 @@ function fireSpecial(game, defender) {
     life: 1.1,
     maxLife: 1.1,
   });
+  const isEducationCommand =
+    game.experience === 'education' && game.education?.stage === 4 && defender.isPlayer;
+  const rallyRange = isEducationCommand ? Number.POSITIVE_INFINITY : 240;
   for (const ally of game.defenders) {
-    if (distance(defender, ally) > 240) continue;
+    if (distance(defender, ally) > rallyRange) continue;
     ally.actionCd = 0;
     ally.fatigued = Math.min(ally.fatigued, 0.3);
     if (ally.role === 'macrophage') {
+      const wasTired = ally.exhausted > 0 || ally.exhaustion > 0;
       ally.exhaustion = 0;
       ally.exhausted = 0;
       ally.rage = Math.max(ally.rage, 6);
+      if (isEducationCommand && wasTired) {
+        game.effects.push({
+          type: 'cell-recharge',
+          owner: ally,
+          x: ally.x,
+          y: ally.y,
+          fromX: defender.x,
+          fromY: defender.y,
+          color: ROLES.helper.color,
+          life: game.reducedMotion ? 0.3 : 1.1,
+          maxLife: game.reducedMotion ? 0.3 : 1.1,
+        });
+        playGameSound(game, 'recharge');
+      }
     }
   }
   for (const bacterium of game.bacteria) {
@@ -1063,6 +1155,7 @@ function advanceEducationStage(game) {
   }
 
   education.stage = nextStage;
+  education.beat = 0;
   education.stageElapsed = 0;
   education.progress = 0;
   education.primaryActions = 0;
@@ -1136,6 +1229,16 @@ function advanceEducationStage(game) {
 
   education.stageStartKills = player?.kills ?? 0;
   education.stageStartBacteria = Math.max(1, game.bacteria.length);
+  game.mode = 'tour';
+  playGameSound(game, 'stageComplete');
+}
+
+function continueEducationTour(game) {
+  if (game.mode !== 'tour' || !game.education) return false;
+  game.mode = 'playing';
+  game.education.stageElapsed = 0;
+  playGameSound(game, 'guide');
+  return true;
 }
 
 function updateEducation(game, dt) {
@@ -1168,6 +1271,13 @@ function updateEducation(game, dt) {
     const toxinProgress = Math.min(3, education.primaryActions);
     const netProgress = Math.min(1, education.specialActions);
     education.progress = (toxinProgress + netProgress) / 4;
+    if (toxinProgress >= 3 && education.beat === 0) {
+      education.beat = 1;
+      education.stageElapsed = 0;
+      game.mode = 'tour';
+      playGameSound(game, 'stageComplete');
+      return;
+    }
     if (
       toxinProgress >= 3 &&
       netProgress >= 1 &&
@@ -1200,6 +1310,13 @@ function updateEducation(game, dt) {
     const matchProgress = education.helperMatched ? 1 : 0;
     const rallyProgress = Math.min(1, education.specialActions);
     education.progress = (matchProgress + rallyProgress) / 2;
+    if (matchProgress >= 1 && education.beat === 0) {
+      education.beat = 1;
+      education.stageElapsed = 0;
+      game.mode = 'tour';
+      playGameSound(game, 'stageComplete');
+      return;
+    }
     if (matchProgress >= 1 && rallyProgress >= 1 && education.stageElapsed > 1.5) {
       advanceEducationStage(game);
     } else {
@@ -2547,7 +2664,10 @@ function snapshotFromGame(game) {
     hostCellsLost: game.hostCellsLost,
     criticalTissue: game.criticalTissue,
     lessonStage: game.education?.stage ?? 0,
+    lessonBeat: game.education?.beat ?? 0,
     lessonProgress: game.education?.progress ?? 0,
+    lessonPrimaryActions: game.education?.primaryActions ?? 0,
+    lessonSpecialActions: game.education?.specialActions ?? 0,
     lessonProgressLabel: educationProgressLabel(game),
   };
 }
@@ -2568,7 +2688,10 @@ const INITIAL_SNAPSHOT = {
   hostCellsLost: 0,
   criticalTissue: 0,
   lessonStage: 0,
+  lessonBeat: 0,
   lessonProgress: 0,
+  lessonPrimaryActions: 0,
+  lessonSpecialActions: 0,
   lessonProgressLabel: '',
 };
 
@@ -2585,6 +2708,7 @@ export function ImmunePage() {
   const touchInputRef = useRef({ x: 0, y: 0 });
   const touchPointerRef = useRef(null);
   const touchStickRef = useRef(null);
+  const guideButtonRef = useRef(null);
   const configRef = useRef({
     experience: 'defense',
     playerCount: 1,
@@ -2594,12 +2718,42 @@ export function ImmunePage() {
   const [snapshot, setSnapshot] = useState(INITIAL_SNAPSHOT);
   const [soundMuted, setSoundMuted] = useState(readSoundPreference);
   const soundMutedRef = useRef(soundMuted);
+  const stageLesson = LEARNING_STAGES[snapshot.lessonStage] ?? LEARNING_STAGES[0];
+  const currentLesson =
+    snapshot.lessonBeat === 1 && stageLesson.next
+      ? { ...stageLesson, ...stageLesson.next }
+      : stageLesson;
 
   const ensureSound = useCallback(() => {
     if (!soundRef.current) soundRef.current = createImmuneSoundEngine();
     soundRef.current.setMuted(soundMutedRef.current);
     return soundRef.current;
   }, []);
+
+  const continueTour = useCallback(() => {
+    const game = gameRef.current;
+    if (!game || !continueEducationTour(game)) return;
+    soundRef.current?.stopNarration();
+    snapshotModeRef.current = game.mode;
+    setSnapshot(snapshotFromGame(game));
+  }, []);
+
+  const replayNarration = useCallback(() => {
+    const game = gameRef.current;
+    const stage = LEARNING_STAGES[game?.education?.stage ?? 0];
+    const lesson = game?.education?.beat === 1 && stage.next ? { ...stage, ...stage.next } : stage;
+    const sound = ensureSound();
+    sound.unlock();
+    sound.speak(lesson.narration);
+  }, [ensureSound]);
+
+  useEffect(() => {
+    if (snapshot.mode !== 'tour') return undefined;
+    guideButtonRef.current?.focus();
+    const sound = ensureSound();
+    sound.speak(currentLesson.narration);
+    return () => sound.stopNarration();
+  }, [currentLesson.narration, ensureSound, snapshot.mode]);
 
   const updateConfig = useCallback((updater) => {
     setConfig((current) => {
@@ -2624,6 +2778,9 @@ export function ImmunePage() {
       reducedMotion: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches,
       sound,
     });
+    if (gameRef.current.mode === 'tour') {
+      sound.speak(LEARNING_STAGES[0].narration);
+    }
     snapshotModeRef.current = gameRef.current.mode;
     setSnapshot(snapshotFromGame(gameRef.current));
   }, [ensureSound]);
@@ -2642,6 +2799,13 @@ export function ImmunePage() {
     if (!nextMuted) {
       sound.unlock();
       sound.play('toggle');
+      if (gameRef.current?.mode === 'tour') {
+        const game = gameRef.current;
+        const stage = LEARNING_STAGES[game.education?.stage ?? 0];
+        const lesson =
+          game.education?.beat === 1 && stage.next ? { ...stage, ...stage.next } : stage;
+        sound.speak(lesson.narration);
+      }
     }
   }, [ensureSound]);
 
@@ -2743,7 +2907,12 @@ export function ImmunePage() {
           pressedRef.current[index] = pressed;
         }
 
-        if (edges.some((edge) => edge.pause) && ['playing', 'paused'].includes(game.mode)) {
+        if (
+          game.mode === 'tour' &&
+          edges.some((edge) => edge.primary || edge.special || edge.pause)
+        ) {
+          continueEducationTour(game);
+        } else if (edges.some((edge) => edge.pause) && ['playing', 'paused'].includes(game.mode)) {
           game.mode = game.mode === 'paused' ? 'playing' : 'paused';
         }
         if (game.mode === 'playing') {
@@ -2871,6 +3040,11 @@ export function ImmunePage() {
         }
         return;
       }
+      if (gameRef.current.mode === 'tour') {
+        if (['Enter', 'Space', 'KeyF', 'KeyG'].includes(event.code)) continueTour();
+        if (event.code === 'Escape') returnToSetup();
+        return;
+      }
       if (
         event.code === 'KeyP' &&
         (gameRef.current.mode === 'playing' || gameRef.current.mode === 'paused')
@@ -2918,7 +3092,7 @@ export function ImmunePage() {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [returnToSetup, startGame, updateConfig]);
+  }, [continueTour, returnToSetup, startGame, updateConfig]);
 
   useEffect(
     () => () => {
@@ -2982,8 +3156,6 @@ export function ImmunePage() {
     event.currentTarget.dataset.pressed = 'false';
   }, []);
 
-  const currentLesson = LEARNING_STAGES[snapshot.lessonStage] ?? LEARNING_STAGES[0];
-
   return (
     <main className="game-route game-route--immune">
       <canvas className="immune-canvas" ref={canvasRef} />
@@ -3005,6 +3177,82 @@ export function ImmunePage() {
         </button>
       </nav>
 
+      {snapshot.mode === 'tour' && (
+        <section
+          aria-describedby="immune-guide-line"
+          aria-labelledby="immune-guide-title"
+          aria-modal="true"
+          className="immune-guide"
+          role="dialog"
+        >
+          <div className="immune-guide__character" aria-hidden="true">
+            <div className="immune-guide__cell">
+              <span className="immune-guide__eye immune-guide__eye--left" />
+              <span className="immune-guide__eye immune-guide__eye--right" />
+              <span className="immune-guide__smile" />
+              <span className="immune-guide__arm immune-guide__arm--left" />
+              <span className="immune-guide__arm immune-guide__arm--right" />
+            </div>
+            <strong>Mo</strong>
+            <small>your cell guide</small>
+          </div>
+
+          <div className="immune-guide__bubble">
+            <div className="immune-guide__step">
+              <span aria-hidden="true">{currentLesson.icon}</span>
+              Immune Journey
+            </div>
+            <h1 id="immune-guide-title">{currentLesson.title}</h1>
+            <p id="immune-guide-line">{currentLesson.narration}</p>
+            <div className="immune-guide__mission">
+              <span aria-hidden="true">★</span>
+              <strong>{currentLesson.objective}</strong>
+            </div>
+            <div className="immune-guide__actions">
+              <button
+                className="immune-guide__go"
+                onClick={continueTour}
+                ref={guideButtonRef}
+                type="button"
+              >
+                <span aria-hidden="true">{currentLesson.ctaIcon}</span>
+                <small>{currentLesson.cta}</small>
+              </button>
+              <button
+                className="immune-guide__listen"
+                onClick={soundMuted ? toggleSound : replayNarration}
+                type="button"
+              >
+                {soundMuted ? <VolumeX aria-hidden="true" /> : <Volume2 aria-hidden="true" />}
+                {soundMuted ? 'Turn sound on' : 'Hear Mo again'}
+              </button>
+            </div>
+            <small className="immune-guide__controls">A button or Enter</small>
+            <ol className="immune-guide__dots" aria-label="Journey progress">
+              {LEARNING_STAGES.map((stage, index) => (
+                <li
+                  aria-label={
+                    index < snapshot.lessonStage
+                      ? `${stage.title}, complete`
+                      : index === snapshot.lessonStage
+                        ? `${stage.title}, current`
+                        : stage.title
+                  }
+                  className={
+                    index < snapshot.lessonStage
+                      ? 'is-complete'
+                      : index === snapshot.lessonStage
+                        ? 'is-current'
+                        : ''
+                  }
+                  key={stage.id}
+                />
+              ))}
+            </ol>
+          </div>
+        </section>
+      )}
+
       {snapshot.mode !== 'setup' && (
         <section
           className={`immune-hud${snapshot.experience === 'education' ? ' immune-hud--learning' : ''}`}
@@ -3025,26 +3273,43 @@ export function ImmunePage() {
                   : 'Antibodies are clumping invaders'}
             </span>
           </div>
-          <div className="immune-hud__stats">
-            {snapshot.experience === 'education' && <span>{currentLesson.cell}</span>}
-            <span>
-              <b>{snapshot.bacteria}</b> bacteria
-            </span>
-            <span
-              className="immune-hud__tissue"
-              style={{ '--tissue-health-color': tissueHealthColor(snapshot.integrity / 100) }}
-            >
-              <b>{snapshot.integrity}%</b> tissue
-            </span>
-            {snapshot.experience === 'defense' && snapshot.criticalTissue > 0 && (
-              <span className="immune-hud__critical">{snapshot.criticalTissue} critical zones</span>
-            )}
-            {snapshot.experience === 'education' ? (
-              <span className="immune-hud__division">{snapshot.lessonProgressLabel}</span>
-            ) : snapshot.phase === 'innate' ? (
-              <span className="immune-hud__division">Division in {snapshot.nextDivision}s</span>
-            ) : null}
-          </div>
+          {snapshot.experience === 'education' ? (
+            <div className="immune-hud__picture-progress" aria-hidden="true">
+              {stageLesson.progressIcons.map((icon, index) => (
+                <span
+                  className={
+                    index < Math.round(snapshot.lessonProgress * stageLesson.progressIcons.length)
+                      ? 'is-complete'
+                      : ''
+                  }
+                  // biome-ignore lint/suspicious/noArrayIndexKey: Fixed visual milestones intentionally repeat icons.
+                  key={`${stageLesson.id}-${index}`}
+                >
+                  {icon}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div className="immune-hud__stats">
+              <span>
+                <b>{snapshot.bacteria}</b> bacteria
+              </span>
+              <span
+                className="immune-hud__tissue"
+                style={{ '--tissue-health-color': tissueHealthColor(snapshot.integrity / 100) }}
+              >
+                <b>{snapshot.integrity}%</b> tissue
+              </span>
+              {snapshot.criticalTissue > 0 && (
+                <span className="immune-hud__critical">
+                  {snapshot.criticalTissue} critical zones
+                </span>
+              )}
+              {snapshot.phase === 'innate' && (
+                <span className="immune-hud__division">Division in {snapshot.nextDivision}s</span>
+              )}
+            </div>
+          )}
           <div
             className="immune-response-track"
             aria-label={
@@ -3098,12 +3363,10 @@ export function ImmunePage() {
                     }
                     key={stage.id}
                   >
-                    <span>{index + 1}</span>
-                    <small className="immune-learning-guide__cell">{stage.cell}</small>
+                    <span aria-hidden="true">{stage.icon}</span>
                   </li>
                 ))}
               </ol>
-              <p>{currentLesson.fact}</p>
             </div>
           )}
         </section>

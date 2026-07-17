@@ -17,12 +17,15 @@ const SOUND_COOLDOWNS = {
   win: 2500,
   lose: 2500,
   toggle: 100,
+  guide: 250,
+  stageComplete: 500,
 };
 
 export function createImmuneSoundEngine() {
   let context = null;
   let master = null;
   let muted = false;
+  let narration = null;
   const lastPlayed = new Map();
 
   const ensureContext = () => {
@@ -289,14 +292,38 @@ export function createImmuneSoundEngine() {
       });
     } else if (name === 'toggle') {
       tone({ startFrequency: 620, endFrequency: 880, duration: 0.12, volume: 0.13, type: 'sine' });
+    } else if (name === 'guide') {
+      [523, 659, 784].forEach((frequency, index) => {
+        tone({
+          startFrequency: frequency,
+          endFrequency: frequency * 1.06,
+          duration: 0.22,
+          volume: 0.1,
+          type: 'sine',
+          delay: index * 0.07,
+        });
+      });
+    } else if (name === 'stageComplete') {
+      [440, 554, 659, 880].forEach((frequency, index) => {
+        tone({
+          startFrequency: frequency,
+          endFrequency: frequency * 1.08,
+          duration: index === 3 ? 0.38 : 0.2,
+          volume: index === 3 ? 0.14 : 0.1,
+          type: 'sine',
+          delay: index * 0.08,
+        });
+      });
     }
   };
 
   return {
     destroy() {
+      if (typeof window !== 'undefined') window.speechSynthesis?.cancel();
       if (context) void context.close();
       context = null;
       master = null;
+      narration = null;
     },
     play(name) {
       if (muted) return;
@@ -308,12 +335,45 @@ export function createImmuneSoundEngine() {
     },
     setMuted(nextMuted) {
       muted = nextMuted;
+      if (muted && typeof window !== 'undefined') window.speechSynthesis?.cancel();
       if (context && master) {
         master.gain.setTargetAtTime(muted ? 0 : 0.14, context.currentTime, 0.025);
       }
     },
     unlock() {
       ensureContext();
+    },
+    speak(text) {
+      if (muted || typeof window === 'undefined') return false;
+      const speech = window.speechSynthesis;
+      const Utterance = window.SpeechSynthesisUtterance;
+      if (!speech || !Utterance) {
+        playPattern('guide');
+        return false;
+      }
+      speech.cancel();
+      narration = new Utterance(text);
+      narration.rate = 0.9;
+      narration.pitch = 1.18;
+      narration.volume = 0.86;
+      const voices = speech.getVoices();
+      narration.voice =
+        voices.find(
+          (voice) =>
+            voice.lang?.startsWith('en') &&
+            /samantha|ava|google us english|serena/i.test(voice.name)
+        ) ??
+        voices.find((voice) => voice.lang?.startsWith('en')) ??
+        null;
+      narration.onend = () => {
+        narration = null;
+      };
+      speech.speak(narration);
+      return true;
+    },
+    stopNarration() {
+      if (typeof window !== 'undefined') window.speechSynthesis?.cancel();
+      narration = null;
     },
   };
 }
