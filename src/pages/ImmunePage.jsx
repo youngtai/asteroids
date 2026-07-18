@@ -31,9 +31,10 @@ const ROLES = {
   },
   helper: {
     name: 'Helper T cell',
-    short: 'Signal',
-    special: 'Rally cells',
-    description: 'Tag invaders and reactivate tired macrophages around the wound.',
+    short: 'Mark + boost',
+    special: 'Team boost',
+    description:
+      'Mark germs so every defender hits harder, recharge nearby macrophages, and speed up antibodies.',
     color: '#8df29a',
     speed: 230,
     specialCooldown: 8,
@@ -302,6 +303,8 @@ function makeBacterium(game, x, y, generation = 0) {
     wiggle: Math.random() * TAU,
     hit: 0,
     marked: 0,
+    markedBy: null,
+    bonusHit: 0,
     clumped: 0,
     dividing: 0,
     hunter: Math.random() < 0.28,
@@ -456,6 +459,7 @@ function makeDefender(game, role, index, isPlayer) {
     fatigued: 0,
     exhausted: 0,
     rage: 0,
+    rallied: 0,
     exhaustion: 0,
     actionPulse: 0,
     specialPulse: 0,
@@ -659,6 +663,7 @@ function makeGame(width, height, config) {
     nextComplement: 1.4,
     lastSnapshot: 0,
     responseStartedAt: 0,
+    responsePulse: 0,
     antibodyHits: 0,
     totalDestroyed: 0,
     hostCellsSaved: 0,
@@ -720,6 +725,19 @@ function nearestBacterium(game, source, range = Number.POSITIVE_INFINITY) {
   return target;
 }
 
+function helperBoostTarget(game, defender) {
+  return game.defenders
+    .filter(
+      (cell) =>
+        cell.role === 'macrophage' && cell.id !== defender.id && distance(cell, defender) < 190
+    )
+    .sort((a, b) => {
+      const fatigueA = a.exhausted * 2 + a.exhaustion + a.fatigued + a.actionCd;
+      const fatigueB = b.exhausted * 2 + b.exhaustion + b.fatigued + b.actionCd;
+      return fatigueB - fatigueA || distance(a, defender) - distance(b, defender);
+    })[0];
+}
+
 function addParticles(game, x, y, color, count = 10, speed = 130) {
   const particleCount = game.reducedMotion ? Math.min(count, 3) : count;
   for (let index = 0; index < particleCount; index += 1) {
@@ -768,6 +786,7 @@ function destroyBacterium(game, bacterium, source, style = 'burst') {
 function damageBacterium(game, bacterium, amount, source, style = 'burst') {
   if (!bacterium || bacterium.dead) return;
   const bonus = bacterium.marked > 0 ? 1.35 : 1;
+  if (bonus > 1 && source) bacterium.bonusHit = 0.22;
   bacterium.hp -= amount * bonus;
   bacterium.hit = 0.14;
   if (bacterium.hp <= 0) destroyBacterium(game, bacterium, source, style);
@@ -878,6 +897,7 @@ function firePrimary(game, defender) {
     recordEducationAction(game, defender, 'primary');
     playGameSound(game, 'signal');
     target.marked = Math.max(target.marked, 5.5);
+    target.markedBy = defender.id;
     if (defender.isPlayer && game.phase === 'innate') {
       game.timeLeft = Math.max(0, game.timeLeft - 0.12);
     }
@@ -893,11 +913,7 @@ function firePrimary(game, defender) {
       maxLife: 0.42,
     });
   }
-  const tiredMacrophage = game.defenders
-    .filter((cell) => cell.role === 'macrophage' && distance(cell, defender) < 190)
-    .sort(
-      (a, b) => b.exhausted + b.fatigued + b.actionCd - (a.exhausted + a.fatigued + a.actionCd)
-    )[0];
+  const tiredMacrophage = helperBoostTarget(game, defender);
   if (tiredMacrophage) {
     const wasTired = tiredMacrophage.exhausted > 0 || tiredMacrophage.fatigued > 0;
     tiredMacrophage.fatigued = 0;
@@ -905,19 +921,20 @@ function firePrimary(game, defender) {
     tiredMacrophage.exhaustion = 0;
     tiredMacrophage.actionCd = Math.min(tiredMacrophage.actionCd, 0.08);
     tiredMacrophage.rage = Math.max(tiredMacrophage.rage, 2.8);
+    tiredMacrophage.rallied = Math.max(tiredMacrophage.rallied, 2.8);
+    game.effects.push({
+      type: 'cell-recharge',
+      owner: tiredMacrophage,
+      x: tiredMacrophage.x,
+      y: tiredMacrophage.y,
+      fromX: defender.x,
+      fromY: defender.y,
+      color: ROLES.helper.color,
+      life: game.reducedMotion ? 0.28 : wasTired ? 0.72 : 0.48,
+      maxLife: game.reducedMotion ? 0.28 : wasTired ? 0.72 : 0.48,
+    });
     if (wasTired) {
       playGameSound(game, 'recharge');
-      game.effects.push({
-        type: 'cell-recharge',
-        owner: tiredMacrophage,
-        x: tiredMacrophage.x,
-        y: tiredMacrophage.y,
-        fromX: defender.x,
-        fromY: defender.y,
-        color: ROLES.helper.color,
-        life: game.reducedMotion ? 0.3 : 0.72,
-        maxLife: game.reducedMotion ? 0.3 : 0.72,
-      });
     }
   }
 }
@@ -1013,6 +1030,20 @@ function fireSpecial(game, defender) {
     if (distance(defender, ally) > rallyRange) continue;
     ally.actionCd = 0;
     ally.fatigued = Math.min(ally.fatigued, 0.3);
+    ally.rallied = Math.max(ally.rallied, 1.4);
+    if (ally.id !== defender.id) {
+      game.effects.push({
+        type: 'rally-link',
+        owner: ally,
+        x: ally.x,
+        y: ally.y,
+        fromX: defender.x,
+        fromY: defender.y,
+        color: ROLES.helper.color,
+        life: game.reducedMotion ? 0.25 : 0.68,
+        maxLife: game.reducedMotion ? 0.25 : 0.68,
+      });
+    }
     if (ally.role === 'macrophage') {
       const wasTired = ally.exhausted > 0 || ally.exhaustion > 0;
       ally.exhaustion = 0;
@@ -1035,8 +1066,20 @@ function fireSpecial(game, defender) {
     }
   }
   for (const bacterium of game.bacteria) {
-    if (distance(defender, bacterium) < 240) bacterium.marked = Math.max(bacterium.marked, 6);
+    if (distance(defender, bacterium) < 240) {
+      bacterium.marked = Math.max(bacterium.marked, 6);
+      bacterium.markedBy = defender.id;
+    }
   }
+  game.effects.push({
+    type: 'countdown-boost',
+    x: defender.x,
+    y: defender.y,
+    color: '#fff3a8',
+    life: game.reducedMotion ? 0.4 : 1.05,
+    maxLife: game.reducedMotion ? 0.4 : 1.05,
+  });
+  game.responsePulse = 0.85;
   game.timeLeft = Math.max(0, game.timeLeft - (defender.isPlayer ? 2.5 : 0.75));
 }
 
@@ -1216,6 +1259,7 @@ function setEducationPlayerRole(game, role, x = null, y = null) {
   player.exhausted = 0;
   player.exhaustion = 0;
   player.rage = 0;
+  player.rallied = 0;
   if (x !== null) player.x = x;
   if (y !== null) player.y = y;
   game.effects.push({
@@ -1432,6 +1476,7 @@ function updateEducation(game, dt) {
 function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
   game.elapsed += dt;
   game.breach.pulse += dt;
+  game.responsePulse = Math.max(0, game.responsePulse - dt);
   updatePlayers(game, dt, keys, gamepads, buttonEdges, touchInput);
 
   game.nextComplement -= dt;
@@ -1540,6 +1585,7 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
       });
     }
     cell.rage = Math.max(0, cell.rage - dt);
+    cell.rallied = Math.max(0, cell.rallied - dt);
     cell.actionPulse = Math.max(0, cell.actionPulse - dt);
     cell.specialPulse = Math.max(0, cell.specialPulse - dt);
     if (!cell.isPlayer) updateAI(game, cell, dt);
@@ -1552,6 +1598,8 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
   for (const bacterium of game.bacteria) {
     bacterium.hit = Math.max(0, bacterium.hit - dt);
     bacterium.marked = Math.max(0, bacterium.marked - dt);
+    bacterium.bonusHit = Math.max(0, bacterium.bonusHit - dt);
+    if (bacterium.marked === 0) bacterium.markedBy = null;
     bacterium.clumped = Math.max(0, bacterium.clumped - dt);
     bacterium.dividing = Math.max(0, bacterium.dividing - dt);
     bacterium.wiggle += dt * 7;
@@ -1868,7 +1916,8 @@ function drawHostCell(ctx, hostCell, game) {
   }
 }
 
-function drawBacterium(ctx, bacterium, bacteriaScale) {
+function drawBacterium(ctx, bacterium, game) {
+  const { bacteriaScale, reducedMotion } = game;
   ctx.save();
   ctx.translate(bacterium.x, bacterium.y);
   ctx.rotate(bacterium.angle + Math.sin(bacterium.wiggle) * 0.08);
@@ -1909,12 +1958,6 @@ function drawBacterium(ctx, bacterium, bacteriaScale) {
     ctx.quadraticCurveTo(-31, y + Math.sin(bacterium.wiggle + y) * 8, -36, y + 3);
     ctx.stroke();
   }
-  if (bacterium.marked > 0) {
-    ctx.fillStyle = '#c8ffd0';
-    ctx.beginPath();
-    ctx.arc(0, -21, 4, 0, TAU);
-    ctx.fill();
-  }
   if (bacterium.corroding && !bacterium.latchedTo) {
     ctx.fillStyle = '#ffcf5a';
     for (let index = 0; index < 2; index += 1) {
@@ -1924,6 +1967,56 @@ function drawBacterium(ctx, bacterium, bacteriaScale) {
     }
   }
   ctx.restore();
+
+  if (bacterium.marked > 0) {
+    const helperMarked = bacterium.markedBy != null;
+    const pulse = reducedMotion ? 0 : (Math.sin(game.elapsed * 6 + bacterium.id) + 1) * 0.5;
+    const radius = (31 + pulse * 1.5) * bacteriaScale;
+    const expiryAlpha = clamp(bacterium.marked / 1.2, 0.24, 1);
+    ctx.save();
+    ctx.translate(bacterium.x, bacterium.y);
+    if (helperMarked && !reducedMotion) ctx.rotate(game.elapsed * 0.52);
+    ctx.globalAlpha *= expiryAlpha;
+    ctx.strokeStyle = '#b8ffca';
+    ctx.fillStyle = '#f4fff1';
+    ctx.lineWidth = Math.max(2, 2.6 * bacteriaScale);
+    for (let index = 0; index < 4; index += 1) {
+      const angle = (index / 4) * TAU + Math.PI * 0.25;
+      const outer = radius + 8 * bacteriaScale;
+      const inner = radius - 4 * bacteriaScale;
+      const spread = 5 * bacteriaScale;
+      const nx = -Math.sin(angle);
+      const ny = Math.cos(angle);
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(angle) * outer + nx * spread, Math.sin(angle) * outer + ny * spread);
+      ctx.lineTo(Math.cos(angle) * inner, Math.sin(angle) * inner);
+      ctx.lineTo(Math.cos(angle) * outer - nx * spread, Math.sin(angle) * outer - ny * spread);
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.arc(0, -radius - 8 * bacteriaScale, 4.5 * bacteriaScale, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  if (bacterium.bonusHit > 0) {
+    const hitProgress = 1 - bacterium.bonusHit / 0.22;
+    ctx.save();
+    ctx.translate(bacterium.x, bacterium.y);
+    ctx.globalAlpha = 1 - hitProgress;
+    ctx.strokeStyle = '#fff3a8';
+    ctx.lineWidth = Math.max(2, 3 * bacteriaScale * (1 - hitProgress * 0.35));
+    for (let index = 0; index < 8; index += 1) {
+      const angle = (index / 8) * TAU;
+      const inner = (22 + hitProgress * 6) * bacteriaScale;
+      const outer = (35 + hitProgress * 20) * bacteriaScale;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(angle) * inner, Math.sin(angle) * inner);
+      ctx.lineTo(Math.cos(angle) * outer, Math.sin(angle) * outer);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
 }
 
 function drawCapturedBacterium(ctx, x, y, scale, rotation, alpha = 1, armored = false) {
@@ -2137,6 +2230,31 @@ function drawDefender(ctx, cell, game) {
 
   ctx.save();
   ctx.translate(cell.x, cell.y);
+  if (cell.rallied > 0) {
+    const fade = clamp(cell.rallied / 0.45, 0, 1);
+    const orbit = reducedMotion ? 0 : game.elapsed * 0.8;
+    const boostRadius = 39 * cellScale + 3;
+    ctx.globalAlpha = fade;
+    ctx.strokeStyle = '#b8ffca';
+    ctx.lineWidth = Math.max(2, 2.7 * cellScale);
+    ctx.lineCap = 'round';
+    for (let index = 0; index < 4; index += 1) {
+      const angle = orbit + (index / 4) * TAU;
+      const x = Math.cos(angle) * boostRadius;
+      const y = Math.sin(angle) * boostRadius;
+      const tangentX = -Math.sin(angle);
+      const tangentY = Math.cos(angle);
+      const radialX = Math.cos(angle);
+      const radialY = Math.sin(angle);
+      const wing = 5 * cellScale;
+      const depth = 7 * cellScale;
+      ctx.beginPath();
+      ctx.moveTo(x + tangentX * wing + radialX * depth, y + tangentY * wing + radialY * depth);
+      ctx.lineTo(x, y);
+      ctx.lineTo(x - tangentX * wing + radialX * depth, y - tangentY * wing + radialY * depth);
+      ctx.stroke();
+    }
+  }
   if (cell.role === 'macrophage') {
     const energy = cell.exhausted > 0 ? 0 : clamp(1 - cell.exhaustion / 5, 0, 1);
     const energyRadius = 31 * cellScale;
@@ -2205,6 +2323,62 @@ function drawDefender(ctx, cell, game) {
   ctx.shadowColor = '#11182d';
   ctx.shadowBlur = 5;
   ctx.fillText(cell.label, 0, -(36 * cellScale + 9));
+  ctx.restore();
+}
+
+function drawHelperTargeting(ctx, game) {
+  if (game.mode !== 'playing') return;
+  const helper = game.defenders.find(
+    (cell) => cell.isPlayer && cell.role === 'helper' && cell.fatigued <= 0
+  );
+  if (!helper) return;
+
+  const germ = nearestBacterium(game, helper, 250);
+  const macrophage = helperBoostTarget(game, helper);
+  ctx.save();
+  ctx.strokeStyle = 'rgba(184, 255, 202, 0.58)';
+  ctx.fillStyle = 'rgba(232, 255, 237, 0.78)';
+  ctx.lineWidth = Math.max(1.5, 2 * game.cellScale);
+  ctx.lineCap = 'round';
+
+  const drawPreviewLine = (target, radius, ally = false) => {
+    if (!target) return;
+    const dx = target.x - helper.x;
+    const dy = target.y - helper.y;
+    const length = Math.max(1, Math.hypot(dx, dy));
+    const ux = dx / length;
+    const uy = dy / length;
+    ctx.setLineDash([4, 9]);
+    ctx.beginPath();
+    ctx.moveTo(helper.x + ux * 30 * game.cellScale, helper.y + uy * 30 * game.cellScale);
+    ctx.lineTo(target.x - ux * radius, target.y - uy * radius);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    if (ally) {
+      const y = target.y + radius + 5;
+      ctx.beginPath();
+      ctx.moveTo(target.x - 9, y + 5);
+      ctx.lineTo(target.x, y);
+      ctx.lineTo(target.x + 9, y + 5);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(target.x - 7, y + 12);
+      ctx.lineTo(target.x, y + 7);
+      ctx.lineTo(target.x + 7, y + 12);
+      ctx.stroke();
+    } else {
+      const previewRadius = radius + 8 + (game.reducedMotion ? 0 : Math.sin(game.elapsed * 5) * 2);
+      ctx.setLineDash([3, 5]);
+      ctx.beginPath();
+      ctx.arc(target.x, target.y, previewRadius, 0, TAU);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  };
+
+  drawPreviewLine(germ, 27 * game.bacteriaScale);
+  drawPreviewLine(macrophage, 32 * game.cellScale, true);
   ctx.restore();
 }
 
@@ -2438,20 +2612,19 @@ function drawEffects(ctx, game) {
       ctx.beginPath();
       ctx.arc(x, y, (20 + progress * 28) * cellScale, 0, TAU);
       ctx.stroke();
-      if (!game.reducedMotion) {
-        for (let index = 0; index < 5; index += 1) {
-          const angle = (index / 5) * TAU - progress * Math.PI * 1.5;
-          ctx.fillStyle = index % 2 === 0 ? '#fff3a8' : effect.color;
-          ctx.beginPath();
-          ctx.arc(
-            x + Math.cos(angle) * (14 + progress * 9) * cellScale,
-            y + Math.sin(angle) * (14 + progress * 9) * cellScale,
-            Math.max(1.5, 2.8 * cellScale),
-            0,
-            TAU
-          );
-          ctx.fill();
-        }
+      const packetCount = game.reducedMotion ? 1 : 3;
+      for (let index = 0; index < packetCount; index += 1) {
+        const travel = game.reducedMotion ? 1 : clamp(progress * 1.7 - index * 0.16, 0, 1);
+        ctx.fillStyle = index % 2 === 0 ? '#fff3a8' : effect.color;
+        ctx.beginPath();
+        ctx.arc(
+          effect.fromX + (x - effect.fromX) * travel,
+          effect.fromY + (y - effect.fromY) * travel,
+          Math.max(2, 3.4 * cellScale),
+          0,
+          TAU
+        );
+        ctx.fill();
       }
     } else if (effect.type === 'pseudopod') {
       ctx.strokeStyle = effect.color;
@@ -2467,6 +2640,7 @@ function drawEffects(ctx, game) {
       );
       ctx.stroke();
     } else if (effect.type === 'signal') {
+      const travel = game.reducedMotion ? 1 : Math.min(1, progress * 2.8);
       ctx.strokeStyle = effect.color;
       ctx.lineWidth = Math.max(2, 3 * cellScale);
       ctx.setLineDash([5, 6]);
@@ -2475,15 +2649,105 @@ function drawEffects(ctx, game) {
       ctx.lineTo(effect.x, effect.y);
       ctx.stroke();
       ctx.setLineDash([]);
+      for (let index = 0; index < (game.reducedMotion ? 1 : 3); index += 1) {
+        const packet = game.reducedMotion ? 1 : clamp(travel - index * 0.18, 0, 1);
+        ctx.fillStyle = index === 1 ? '#fff3a8' : '#e8ffed';
+        ctx.beginPath();
+        ctx.arc(
+          effect.fromX + (effect.x - effect.fromX) * packet,
+          effect.fromY + (effect.y - effect.fromY) * packet,
+          Math.max(2, 3.6 * bacteriaScale),
+          0,
+          TAU
+        );
+        ctx.fill();
+      }
       ctx.beginPath();
-      ctx.arc(effect.x, effect.y, (15 + progress * 25) * bacteriaScale, 0, TAU);
+      ctx.arc(
+        effect.x,
+        effect.y,
+        (game.reducedMotion ? 34 : 15 + progress * 25) * bacteriaScale,
+        0,
+        TAU
+      );
+      ctx.stroke();
+    } else if (effect.type === 'rally-link') {
+      const x = effect.owner?.x ?? effect.x;
+      const y = effect.owner?.y ?? effect.y;
+      ctx.strokeStyle = effect.color;
+      ctx.lineWidth = Math.max(2, 3.4 * cellScale * (1 - progress * 0.45));
+      ctx.setLineDash([7, 5]);
+      ctx.beginPath();
+      ctx.moveTo(effect.fromX, effect.fromY);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      for (let index = 0; index < (game.reducedMotion ? 1 : 2); index += 1) {
+        const travel = game.reducedMotion ? 1 : clamp(progress * 1.7 - index * 0.2, 0, 1);
+        ctx.fillStyle = index === 0 ? '#f4fff1' : '#fff3a8';
+        ctx.beginPath();
+        ctx.arc(
+          effect.fromX + (x - effect.fromX) * travel,
+          effect.fromY + (y - effect.fromY) * travel,
+          Math.max(2.5, 4 * cellScale),
+          0,
+          TAU
+        );
+        ctx.fill();
+      }
+      const lift = game.reducedMotion ? 0 : progress * 10 * cellScale;
+      ctx.beginPath();
+      ctx.moveTo(x - 8 * cellScale, y - 34 * cellScale - lift);
+      ctx.lineTo(x, y - 42 * cellScale - lift);
+      ctx.lineTo(x + 8 * cellScale, y - 34 * cellScale - lift);
       ctx.stroke();
     } else if (effect.type === 'rally') {
       ctx.strokeStyle = effect.color;
       ctx.lineWidth = 7 * (1 - progress) + 2;
       ctx.beginPath();
-      ctx.arc(effect.x, effect.y, effect.radius * progress, 0, TAU);
+      ctx.arc(
+        effect.x,
+        effect.y,
+        game.reducedMotion ? effect.radius : effect.radius * Math.min(1, progress * 1.7),
+        0,
+        TAU
+      );
       ctx.stroke();
+      ctx.globalAlpha *= 0.56;
+      ctx.lineWidth = Math.max(2, 4 * (1 - progress));
+      ctx.beginPath();
+      ctx.arc(
+        effect.x,
+        effect.y,
+        game.reducedMotion ? effect.radius * 0.72 : effect.radius * Math.min(0.78, progress * 1.35),
+        0,
+        TAU
+      );
+      ctx.stroke();
+    } else if (effect.type === 'countdown-boost') {
+      const targetX = clamp(game.width * 0.3, 116, Math.min(430, game.width - 70));
+      const targetY = 91;
+      const travel = game.reducedMotion ? 1 : 1 - (1 - clamp(progress * 1.55, 0, 1)) ** 3;
+      const x = effect.x + (targetX - effect.x) * travel;
+      const y = effect.y + (targetY - effect.y) * travel;
+      ctx.strokeStyle = '#d9ffd8';
+      ctx.lineWidth = Math.max(2, 3 * cellScale * (1 - progress * 0.4));
+      if (!game.reducedMotion) {
+        ctx.beginPath();
+        ctx.moveTo(effect.x, effect.y);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+      }
+      ctx.fillStyle = effect.color;
+      ctx.beginPath();
+      ctx.arc(x, y, Math.max(4, 6 * cellScale), 0, TAU);
+      ctx.fill();
+      if (travel > 0.72) {
+        ctx.font = `900 ${Math.round(clamp(12, 15 * cellScale, 16))}px Inter, system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#f4fff1';
+        ctx.fillText('-2.5s', targetX, targetY - 15);
+      }
     } else if (effect.type === 'net') {
       const radius = effect.radius * Math.min(1, progress * 3.5);
       ctx.strokeStyle = '#fff6df';
@@ -2700,8 +2964,9 @@ function drawEducationActors(ctx, game) {
 
 function drawGame(ctx, game) {
   drawBackground(ctx, game);
+  drawHelperTargeting(ctx, game);
   for (const hostCell of game.hostCells) drawHostCell(ctx, hostCell, game);
-  for (const bacterium of game.bacteria) drawBacterium(ctx, bacterium, game.bacteriaScale);
+  for (const bacterium of game.bacteria) drawBacterium(ctx, bacterium, game);
   drawEducationActors(ctx, game);
   for (const cell of game.defenders) drawDefender(ctx, cell, game);
   drawEffects(ctx, game);
@@ -2759,6 +3024,7 @@ function snapshotFromGame(game) {
     hostCellsSaved: game.hostCellsSaved,
     hostCellsLost: game.hostCellsLost,
     criticalTissue: game.criticalTissue,
+    responsePulse: game.responsePulse > 0,
     lessonStage: game.education?.stage ?? 0,
     lessonBeat: game.education?.beat ?? 0,
     lessonProgress: game.education?.progress ?? 0,
@@ -2783,6 +3049,7 @@ const INITIAL_SNAPSHOT = {
   hostCellsSaved: 0,
   hostCellsLost: 0,
   criticalTissue: 0,
+  responsePulse: false,
   lessonStage: 0,
   lessonBeat: 0,
   lessonProgress: 0,
@@ -3408,7 +3675,7 @@ export function ImmunePage() {
             </div>
           )}
           <div
-            className="immune-response-track"
+            className={`immune-response-track${snapshot.responsePulse ? ' is-boosted' : ''}`}
             aria-label={
               snapshot.experience === 'education'
                 ? 'Immune Journey progress'
@@ -3487,6 +3754,26 @@ export function ImmunePage() {
         </aside>
       )}
 
+      {snapshot.mode === 'playing' &&
+        snapshot.experience === 'defense' &&
+        snapshot.players.some((player) => player.role === 'helper') && (
+          <aside className="immune-helper-coach" aria-label="Helper T cell controls">
+            {snapshot.players
+              .filter((player) => player.role === 'helper')
+              .map((player) => (
+                <div key={`helper-coach-${player.playerIndex}`}>
+                  <strong>P{player.playerIndex + 1} Helper</strong>
+                  <span>
+                    <b>{player.playerIndex === 0 ? 'F / A' : 'Enter / A'}</b> Mark + boost
+                  </span>
+                  <span>
+                    <b>{player.playerIndex === 0 ? 'G / X' : '/ / X'}</b> Team boost
+                  </span>
+                </div>
+              ))}
+          </aside>
+        )}
+
       {snapshot.mode === 'playing' && snapshot.players[0] && (
         <section className="immune-touch-controls" aria-label="Player 1 touch controls">
           <button
@@ -3521,7 +3808,7 @@ export function ImmunePage() {
               type="button"
             >
               <strong>{ROLES[snapshot.players[0].role].short}</strong>
-              <small>Action</small>
+              <small>{snapshot.players[0].role === 'helper' ? 'Team +35%' : 'Action'}</small>
             </button>
             <button
               aria-label={`${ROLES[snapshot.players[0].role].special} special`}
@@ -3535,7 +3822,9 @@ export function ImmunePage() {
               type="button"
             >
               <strong>{ROLES[snapshot.players[0].role].special}</strong>
-              <small>Special</small>
+              <small>
+                {snapshot.players[0].role === 'helper' ? 'Faster antibodies' : 'Special'}
+              </small>
             </button>
           </div>
         </section>

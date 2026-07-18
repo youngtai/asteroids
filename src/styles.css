@@ -1474,6 +1474,23 @@ a {
   transition: transform 180ms linear;
 }
 
+.immune-response-track.is-boosted {
+  animation: immune-response-boost 520ms ease-out;
+}
+
+.immune-response-track.is-boosted span {
+  background: #8df29a;
+  box-shadow:
+    0 0 0 2px rgba(184, 255, 202, 0.5),
+    0 0 18px rgba(141, 242, 154, 0.96);
+}
+
+@keyframes immune-response-boost {
+  45% {
+    transform: scaleY(2.2);
+  }
+}
+
 .immune-hud--learning {
   width: min(720px, calc(100vw - 210px));
 }
@@ -1615,6 +1632,45 @@ a {
   -webkit-touch-callout: none;
 }
 
+.immune-helper-coach {
+  position: fixed;
+  bottom: 18px;
+  left: 50%;
+  z-index: 40;
+  display: grid;
+  gap: 6px;
+  width: max-content;
+  max-width: calc(100vw - 36px);
+  transform: translateX(-50%);
+  color: #f4fff1;
+  pointer-events: none;
+}
+
+.immune-helper-coach > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 11px;
+  border: 1px solid rgba(184, 255, 202, 0.56);
+  border-radius: 8px;
+  background: rgba(24, 30, 48, 0.86);
+  box-shadow: inset 4px 0 0 #8df29a;
+  backdrop-filter: blur(9px);
+  font-size: 0.76rem;
+}
+
+.immune-helper-coach strong {
+  color: #b8ffca;
+}
+
+.immune-helper-coach span {
+  color: #e8edf7;
+}
+
+.immune-helper-coach b {
+  color: #fff3a8;
+}
+
 .immune-touch-joystick,
 .immune-touch-action {
   border: 2px solid rgba(255, 255, 255, 0.76);
@@ -1737,10 +1793,13 @@ a {
 }
 
 .immune-touch-action small {
+  max-width: 10ch;
   margin-top: 3px;
   color: rgba(255, 255, 255, 0.76);
   font-size: 0.62rem;
   font-weight: 750;
+  line-height: 1.05;
+  text-align: center;
 }
 
 .immune-touch-action[data-pressed="true"] {
@@ -2567,6 +2626,10 @@ a {
 @media (max-width: 900px), (pointer: coarse) {
   .immune-touch-controls {
     display: block;
+  }
+
+  .immune-helper-coach {
+    display: none;
   }
 }
 
