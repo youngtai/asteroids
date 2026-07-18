@@ -18,6 +18,7 @@ const SOUND_COOLDOWNS = {
   lose: 2500,
   toggle: 100,
   guide: 250,
+  collect: 140,
   stageComplete: 500,
 };
 
@@ -302,6 +303,15 @@ export function createImmuneSoundEngine() {
           type: 'sine',
           delay: index * 0.07,
         });
+      });
+    } else if (name === 'collect') {
+      tone({ startFrequency: 760, endFrequency: 1040, duration: 0.1, volume: 0.09 });
+      tone({
+        startFrequency: 980,
+        endFrequency: 1320,
+        duration: 0.12,
+        volume: 0.08,
+        delay: 0.055,
       });
     } else if (name === 'stageComplete') {
       [440, 554, 659, 880].forEach((frequency, index) => {
