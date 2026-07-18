@@ -5,7 +5,8 @@ import { createImmuneSoundEngine } from '../lib/immuneAudio.js';
 
 const TAU = Math.PI * 2;
 const ROUND_TIME = 52;
-const MAX_BACTERIA = 96;
+const MAX_BACTERIA = 180;
+const BASELINE_ARENA_AREA = 1280 * 720;
 const SNAPSHOT_INTERVAL = 100;
 const SOUND_PREFERENCE_KEY = 'immune-sound-muted';
 
@@ -173,6 +174,17 @@ function getArenaScale(width, height) {
   };
 }
 
+function getArenaPopulationProfile(width, height) {
+  const areaScale = clamp(Math.sqrt((width * height) / BASELINE_ARENA_AREA), 0.62, 3);
+  return {
+    initialBacteria: Math.round(clamp(26 * Math.sqrt(areaScale), 20, 46)),
+    maxBacteria: Math.round(clamp(96 * areaScale, 72, MAX_BACTERIA)),
+    ingressWaveSize: Math.round(clamp(areaScale + 0.5, 1, 4)),
+    reinforcementWaveSize: Math.round(clamp(areaScale * 1.15, 1, 3)),
+    maxAiDefenders: Math.round(clamp(4 + areaScale * 2, 6, 12)),
+  };
+}
+
 const TISSUE_COLORS = [
   { at: 0, value: [74, 58, 82] },
   { at: 0.3, value: [255, 106, 77] },
@@ -314,9 +326,7 @@ function spawnInitialBacteria(game, count = 26) {
   }
 }
 
-function spawnIncomingBacterium(game) {
-  if (game.bacteria.length >= MAX_BACTERIA) return false;
-  const edge = Math.floor(Math.random() * 4);
+function getEdgeEntry(game, edge, position, offset = 0) {
   const margin = 22;
   const topBound = 82;
   let x;
@@ -325,26 +335,34 @@ function spawnIncomingBacterium(game) {
   let fromY;
 
   if (edge === 0) {
-    x = randomBetween(margin, game.width - margin);
+    x = clamp(game.width * position + offset, margin, game.width - margin);
     y = topBound;
     fromX = x;
     fromY = topBound - 54;
   } else if (edge === 1) {
     x = game.width - margin;
-    y = randomBetween(topBound, game.height - margin);
+    y = clamp(game.height * position + offset, topBound, game.height - margin);
     fromX = game.width + 54;
     fromY = y;
   } else if (edge === 2) {
-    x = randomBetween(margin, game.width - margin);
+    x = clamp(game.width * position + offset, margin, game.width - margin);
     y = game.height - margin;
     fromX = x;
     fromY = game.height + 54;
   } else {
     x = margin;
-    y = randomBetween(topBound, game.height - margin);
+    y = clamp(game.height * position + offset, topBound, game.height - margin);
     fromX = -54;
     fromY = y;
   }
+
+  return { x, y, fromX, fromY };
+}
+
+function spawnIncomingBacterium(game, edge, position, offset = 0) {
+  const maxBacteria = game.population?.maxBacteria ?? MAX_BACTERIA;
+  if (game.bacteria.length >= maxBacteria) return false;
+  const { x, y, fromX, fromY } = getEdgeEntry(game, edge, position, offset);
 
   const bacterium = makeBacterium(game, x, y);
   const heading =
@@ -367,6 +385,57 @@ function spawnIncomingBacterium(game) {
   });
   playGameSound(game, 'arrival');
   return true;
+}
+
+function spawnIncomingBacteriaWave(game) {
+  const edge = Math.floor(Math.random() * 4);
+  const position = randomBetween(0.18, 0.82);
+  const requested = game.experience === 'education' ? 1 : (game.population?.ingressWaveSize ?? 1);
+  let entered = 0;
+  for (let index = 0; index < requested; index += 1) {
+    const centeredIndex = index - (requested - 1) / 2;
+    if (spawnIncomingBacterium(game, edge, position, centeredIndex * 34)) entered += 1;
+  }
+  return entered;
+}
+
+function spawnDefenderReinforcementWave(game) {
+  if (game.experience !== 'defense') return 0;
+  const currentAi = game.defenders.filter((cell) => !cell.isPlayer).length;
+  const available = Math.max(0, (game.population?.maxAiDefenders ?? 6) - currentAi);
+  const requested = Math.min(game.population?.reinforcementWaveSize ?? 1, available);
+  if (requested <= 0) return 0;
+
+  const edge = Math.floor(Math.random() * 4);
+  const position = randomBetween(0.22, 0.78);
+  const roles =
+    game.phase === 'adaptive'
+      ? ['macrophage', 'helper', 'neutrophil']
+      : ['neutrophil', 'macrophage', 'neutrophil', 'helper'];
+  for (let index = 0; index < requested; index += 1) {
+    const role = roles[(game.reinforcementWave + index) % roles.length];
+    const cell = makeDefender(game, role, game.defenders.length, false);
+    const centeredIndex = index - (requested - 1) / 2;
+    const entry = getEdgeEntry(game, edge, position, centeredIndex * 52);
+    cell.x = entry.x;
+    cell.y = entry.y;
+    cell.facing = Math.atan2(game.breach.y - cell.y, game.breach.x - cell.x);
+    cell.label = '';
+    game.defenders.push(cell);
+    game.effects.push({
+      type: 'arrival',
+      x: entry.x,
+      y: entry.y,
+      fromX: entry.fromX,
+      fromY: entry.fromY,
+      color: ROLES[role].color,
+      life: game.reducedMotion ? 0.25 : 0.86,
+      maxLife: game.reducedMotion ? 0.25 : 0.86,
+    });
+  }
+  game.reinforcementWave += requested;
+  playGameSound(game, 'arrival');
+  return requested;
 }
 
 function makeDefender(game, role, index, isPlayer) {
@@ -492,6 +561,22 @@ function updateHostCells(game, dt) {
 
 function updateTissue(game, dt) {
   const tissue = game.tissue;
+  const activeAttackers = game.bacteria.filter(
+    (bacterium) => !bacterium.dead && !bacterium.latchedTo
+  ).length;
+  const baselineAttackers = Math.max(20, (game.population?.initialBacteria ?? 26) * 1.5);
+  const crowdDamageScale = clamp(
+    Math.sqrt(baselineAttackers / Math.max(baselineAttackers, activeAttackers)),
+    0.58,
+    1
+  );
+  const patchDamageScale = clamp(Math.sqrt(tissue.health.length / 300), 0.7, 2.4);
+  const educationDamageScale = game.experience === 'education' ? 0.45 : 1;
+  const damageRate =
+    (game.phase === 'adaptive' ? 0.018 : 0.072) *
+    patchDamageScale *
+    crowdDamageScale *
+    educationDamageScale;
   for (let index = 0; index < tissue.danger.length; index += 1) {
     tissue.danger[index] = Math.max(0, tissue.danger[index] - dt * 0.7);
   }
@@ -501,13 +586,9 @@ function updateTissue(game, dt) {
     if (bacterium.dead || bacterium.latchedTo) continue;
     const index = tissueIndexAt(game, bacterium.x, bacterium.y);
     const nearBreach = distance(bacterium, game.breach) < 92;
-    const responsiveDamageScale = tissue.health.length / 350;
-    const educationDamageScale = game.experience === 'education' ? 0.52 : 1;
-    const damageRate =
-      (game.phase === 'adaptive' ? 0.035 : 0.135) * responsiveDamageScale * educationDamageScale;
     tissue.health[index] = Math.max(
       0,
-      tissue.health[index] - damageRate * (nearBreach ? 1.28 : 1) * dt
+      tissue.health[index] - damageRate * (nearBreach ? 1.18 : 1) * dt
     );
     tissue.danger[index] = Math.max(tissue.danger[index], nearBreach ? 1 : 0.74);
     bacterium.corroding = true;
@@ -531,20 +612,23 @@ function updateTissue(game, dt) {
     }
   }
   woundHealth.sort((a, b) => a - b);
-  const threatenedPatchCount = Math.max(1, Math.ceil(woundHealth.length * 0.65));
-  const threatenedHealth = woundHealth
-    .slice(0, threatenedPatchCount)
-    .reduce((total, health) => total + health, 0);
-  const threatenedIntegrity = (threatenedHealth / threatenedPatchCount) * 100;
+  const visibleHealth = tissue.health.reduce((total, health) => total + health, 0);
+  const visibleIntegrity = (visibleHealth / tissue.health.length) * 100;
+  const woundAverage =
+    woundHealth.reduce((total, health) => total + health, 0) / Math.max(1, woundHealth.length);
+  const localWoundPenalty = (1 - woundAverage) * 12;
+  const collapsingShare = collapsingWoundPatches / Math.max(1, woundHealth.length);
+  const modeledIntegrity = visibleIntegrity - localWoundPenalty;
   game.integrity = Math.max(
     0,
-    Math.min(game.integrity, threatenedIntegrity) - collapsingWoundPatches * 0.07 * dt
+    Math.min(game.integrity, modeledIntegrity) - collapsingShare * 0.18 * dt
   );
-  game.criticalTissue = criticalPatches;
+  game.criticalTissue = Math.ceil((criticalPatches / tissue.health.length) * 100);
 }
 
 function makeGame(width, height, config) {
   const arenaScale = getArenaScale(width, height);
+  const population = getArenaPopulationProfile(width, height);
   const experience = config.experience === 'education' ? 'education' : 'defense';
   const game = {
     mode: experience === 'education' ? 'tour' : 'playing',
@@ -553,6 +637,7 @@ function makeGame(width, height, config) {
     width,
     height,
     ...arenaScale,
+    population,
     elapsed: 0,
     timeLeft: ROUND_TIME,
     integrity: 100,
@@ -567,6 +652,8 @@ function makeGame(width, height, config) {
     nextId: 1,
     nextDivision: 5.4,
     nextIngress: 4.2,
+    nextReinforcement: 8.5,
+    reinforcementWave: 0,
     nextHostCell: 6.5,
     nextAntibody: 0,
     nextComplement: 1.4,
@@ -611,7 +698,7 @@ function makeGame(width, height, config) {
   squad.forEach((role, index) => {
     game.defenders.push(makeDefender(game, role, roles.length + index, false));
   });
-  spawnInitialBacteria(game, experience === 'education' ? 12 : 26);
+  spawnInitialBacteria(game, experience === 'education' ? 12 : population.initialBacteria);
   return game;
 }
 
@@ -954,10 +1041,11 @@ function fireSpecial(game, defender) {
 }
 
 function divideBacteria(game) {
-  if (game.phase !== 'innate' || game.bacteria.length >= MAX_BACTERIA) return;
+  const maxBacteria = game.population?.maxBacteria ?? MAX_BACTERIA;
+  if (game.phase !== 'innate' || game.bacteria.length >= maxBacteria) return;
   const living = game.bacteria.filter((bacterium) => !bacterium.dead && bacterium.clumped <= 0);
   if (living.length === 0) return;
-  const count = Math.min(2 + Math.floor(game.elapsed / 18), 4, MAX_BACTERIA - living.length);
+  const count = Math.min(2 + Math.floor(game.elapsed / 18), 4, maxBacteria - living.length);
   const chosen = living.sort(() => Math.random() - 0.5).slice(0, count);
   if (chosen.length > 0) playGameSound(game, 'division');
   for (const parent of chosen) {
@@ -1354,12 +1442,20 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
 
   game.nextIngress -= dt;
   if (game.nextIngress <= 0) {
-    const entered = spawnIncomingBacterium(game);
+    const entered = spawnIncomingBacteriaWave(game);
     game.nextIngress = entered
       ? game.phase === 'adaptive'
-        ? randomBetween(7.5, 10)
-        : randomBetween(5.4, 7.2)
+        ? randomBetween(8, 11)
+        : randomBetween(6.2, 8.2)
       : 1.5;
+  }
+
+  if (game.experience === 'defense') {
+    game.nextReinforcement -= dt;
+    if (game.nextReinforcement <= 0) {
+      const reinforced = spawnDefenderReinforcementWave(game);
+      game.nextReinforcement = reinforced ? randomBetween(10.5, 13.5) : 4;
+    }
   }
 
   if (game.phase === 'innate' && game.experience === 'defense') {
@@ -2843,6 +2939,7 @@ export function ImmunePage() {
         game.height = height;
         game.bacteriaScale = arenaScale.bacteriaScale;
         game.cellScale = arenaScale.cellScale;
+        game.population = getArenaPopulationProfile(width, height);
         game.breach.x = width * 0.5;
         game.breach.y = height * 0.47;
         game.tissue = makeTissue(width, height, previousTissue);
@@ -3302,7 +3399,7 @@ export function ImmunePage() {
               </span>
               {snapshot.criticalTissue > 0 && (
                 <span className="immune-hud__critical">
-                  {snapshot.criticalTissue} critical zones
+                  {snapshot.criticalTissue}% critical tissue
                 </span>
               )}
               {snapshot.phase === 'innate' && (
