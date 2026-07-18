@@ -9,6 +9,12 @@ const MAX_BACTERIA = 180;
 const BASELINE_ARENA_AREA = 1280 * 720;
 const SNAPSHOT_INTERVAL = 100;
 const SOUND_PREFERENCE_KEY = 'immune-sound-muted';
+const ADAPTIVE_RESPONSE_STAGES = [
+  { id: 'sampling', icon: '🔎', label: 'Find germ clues' },
+  { id: 'delivery', icon: '🛡️', label: 'Guard the courier' },
+  { id: 'matching', icon: '🧩', label: 'Match helper and B cells' },
+  { id: 'cloning', icon: '🫧', label: 'Grow plasma cells' },
+];
 
 const ROLES = {
   macrophage: {
@@ -33,8 +39,7 @@ const ROLES = {
     name: 'Helper T cell',
     short: 'Mark + boost',
     special: 'Team boost',
-    description:
-      'Mark germs so every defender hits harder, recharge nearby macrophages, and speed up antibodies.',
+    description: 'Mark germs, recharge macrophages, and help matching B cells become plasma cells.',
     color: '#8df29a',
     speed: 230,
     specialCooldown: 8,
@@ -186,6 +191,71 @@ function getArenaPopulationProfile(width, height) {
   };
 }
 
+function makeAdaptiveResponse(width, height, population) {
+  const startX = width * 0.5;
+  const startY = height * 0.47;
+  return {
+    stage: 'sampling',
+    stageIndex: 0,
+    progress: 0,
+    elapsed: 0,
+    samples: 0,
+    samplesNeeded: Math.round(clamp(population.initialBacteria * 0.9, 18, 32)),
+    passiveSampleTimer: 4,
+    phase: 0,
+    courier: {
+      x: startX + 72,
+      y: startY - 44,
+      startX: startX + 72,
+      startY: startY - 44,
+      targetX: width - 104,
+      targetY: 124,
+    },
+    node: { x: width - 104, y: 124 },
+    bCellCopies: 1,
+    plasmaCells: [],
+  };
+}
+
+function adaptiveOverallProgress(game) {
+  if (game.phase === 'adaptive') return 1;
+  const response = game.adaptive;
+  if (!response) return 0;
+  return clamp((response.stageIndex + response.progress) / ADAPTIVE_RESPONSE_STAGES.length, 0, 1);
+}
+
+function adaptiveStatus(game) {
+  if (game.phase === 'adaptive') {
+    return {
+      title: 'Plasma cells are firing!',
+      detail: 'Antibodies are pinning germs together',
+    };
+  }
+  const response = game.adaptive;
+  if (!response || response.stage === 'sampling') {
+    return {
+      title: 'Find germ clues',
+      detail: `${response?.samples ?? 0}/${response?.samplesNeeded ?? 0} clues collected`,
+    };
+  }
+  if (response.stage === 'delivery') {
+    return {
+      title: 'Guard the dendritic cell',
+      detail: 'Clear germs away from its path',
+    };
+  }
+  if (response.stage === 'matching') {
+    return {
+      title: 'Find the matching cells',
+      detail: 'Helper T cell is activating a B cell',
+    };
+  }
+  return {
+    title: 'Grow antibody factories',
+    detail: `${response.bCellCopies} B-cell ${response.bCellCopies === 1 ? 'copy' : 'copies'} becoming plasma cells`,
+  };
+}
+
 const TISSUE_COLORS = [
   { at: 0, value: [74, 58, 82] },
   { at: 0.3, value: [255, 106, 77] },
@@ -306,6 +376,10 @@ function makeBacterium(game, x, y, generation = 0) {
     markedBy: null,
     bonusHit: 0,
     clumped: 0,
+    antibodyCoated: 0,
+    antibodyCluster: null,
+    antibodyPulse: 0,
+    complementFuse: null,
     dividing: 0,
     hunter: Math.random() < 0.28,
     hostTargetId: null,
@@ -566,7 +640,7 @@ function updateHostCells(game, dt) {
 function updateTissue(game, dt) {
   const tissue = game.tissue;
   const activeAttackers = game.bacteria.filter(
-    (bacterium) => !bacterium.dead && !bacterium.latchedTo
+    (bacterium) => !bacterium.dead && !bacterium.latchedTo && bacterium.antibodyCoated <= 0
   ).length;
   const baselineAttackers = Math.max(20, (game.population?.initialBacteria ?? 26) * 1.5);
   const crowdDamageScale = clamp(
@@ -587,7 +661,7 @@ function updateTissue(game, dt) {
 
   for (const bacterium of game.bacteria) {
     bacterium.corroding = false;
-    if (bacterium.dead || bacterium.latchedTo) continue;
+    if (bacterium.dead || bacterium.latchedTo || bacterium.antibodyCoated > 0) continue;
     const index = tissueIndexAt(game, bacterium.x, bacterium.y);
     const nearBreach = distance(bacterium, game.breach) < 92;
     tissue.health[index] = Math.max(
@@ -664,7 +738,9 @@ function makeGame(width, height, config) {
     lastSnapshot: 0,
     responseStartedAt: 0,
     responsePulse: 0,
+    adaptive: null,
     antibodyHits: 0,
+    germsCoated: 0,
     totalDestroyed: 0,
     hostCellsSaved: 0,
     hostCellsLost: 0,
@@ -692,6 +768,10 @@ function makeGame(width, height, config) {
           }
         : null,
   };
+
+  if (experience === 'defense') {
+    game.adaptive = makeAdaptiveResponse(width, height, population);
+  }
 
   const roles =
     experience === 'education' ? ['macrophage'] : config.roles.slice(0, config.playerCount);
@@ -756,14 +836,82 @@ function addParticles(game, x, y, color, count = 10, speed = 130) {
   }
 }
 
+function advanceAdaptiveResponseStage(game) {
+  const response = game.adaptive;
+  if (!response || game.phase === 'adaptive') return;
+  const nextIndex = response.stageIndex + 1;
+  if (nextIndex >= ADAPTIVE_RESPONSE_STAGES.length) {
+    beginAdaptiveResponse(game);
+    return;
+  }
+  response.stageIndex = nextIndex;
+  response.stage = ADAPTIVE_RESPONSE_STAGES[nextIndex].id;
+  response.progress = 0;
+  response.phase = 0;
+  game.responsePulse = 0.9;
+  playGameSound(game, 'stageComplete');
+  const focus = response.stage === 'delivery' ? response.courier : response.node;
+  game.effects.push({
+    type: 'rally',
+    x: focus.x,
+    y: focus.y,
+    radius: response.stage === 'delivery' ? 92 : 78,
+    color: '#d9fff7',
+    life: game.reducedMotion ? 0.28 : 0.8,
+    maxLife: game.reducedMotion ? 0.28 : 0.8,
+  });
+}
+
+function accelerateAdaptiveResponse(game, amount) {
+  const response = game.adaptive;
+  if (!response || game.phase === 'adaptive' || !['matching', 'cloning'].includes(response.stage)) {
+    return false;
+  }
+  response.progress = clamp(response.progress + amount, 0, 1);
+  response.bCellCopies = Math.max(1, 1 + Math.floor(response.progress * 7));
+  game.responsePulse = 0.85;
+  if (response.progress >= 1) advanceAdaptiveResponseStage(game);
+  return true;
+}
+
+function addAntigenClue(game, fromX, fromY) {
+  const response = game.adaptive;
+  if (
+    game.experience !== 'defense' ||
+    game.phase !== 'innate' ||
+    !response ||
+    response.stage !== 'sampling' ||
+    response.samples >= response.samplesNeeded
+  ) {
+    return;
+  }
+  response.samples += 1;
+  response.progress = response.samples / response.samplesNeeded;
+  game.responsePulse = 0.5;
+  game.effects.push({
+    type: 'antigen-clue',
+    x: response.courier.x,
+    y: response.courier.y,
+    fromX,
+    fromY,
+    owner: response.courier,
+    color: '#ff9bb6',
+    life: game.reducedMotion ? 0.3 : 0.78,
+    maxLife: game.reducedMotion ? 0.3 : 0.78,
+  });
+  if (response.samples >= response.samplesNeeded) advanceAdaptiveResponseStage(game);
+}
+
+function collectAntigenClue(game, bacterium) {
+  addAntigenClue(game, bacterium.x, bacterium.y);
+}
+
 function destroyBacterium(game, bacterium, source, style = 'burst') {
   if (!bacterium || bacterium.dead) return;
   releaseHostCell(game, bacterium, true);
   bacterium.dead = true;
   game.totalDestroyed += 1;
-  if (source?.isPlayer && game.phase === 'innate') {
-    game.timeLeft = Math.max(0, game.timeLeft - 0.18);
-  }
+  collectAntigenClue(game, bacterium);
   if (source) source.kills += 1;
   const isPhagocytosis = style === 'engulf';
   const effectLife = isPhagocytosis ? (game.reducedMotion ? 0.28 : 0.82) : 0.34;
@@ -813,13 +961,20 @@ function firePrimary(game, defender) {
 
   if (defender.role === 'macrophage') {
     const target = nearestBacterium(game, defender, defender.rage > 0 ? 112 : 92);
-    defender.actionCd = defender.rage > 0 ? 0.3 : 0.58;
+    const opsonizedMeal = target?.antibodyCoated > 0;
+    defender.actionCd = defender.rage > 0 ? 0.3 : opsonizedMeal ? 0.26 : 0.58;
     if (target) {
       recordEducationAction(game, defender, 'primary');
       defender.facing = Math.atan2(target.y - defender.y, target.x - defender.x);
       playGameSound(game, 'engulf');
-      damageBacterium(game, target, defender.rage > 0 ? 1.5 : 1.05, defender, 'engulf');
-      defender.exhaustion += 1;
+      damageBacterium(
+        game,
+        target,
+        defender.rage > 0 ? 1.5 : opsonizedMeal ? 1.18 : 1.05,
+        defender,
+        'engulf'
+      );
+      defender.exhaustion += opsonizedMeal ? 0.45 : 1;
       if (defender.exhaustion >= 5 && defender.rage <= 0) {
         defender.exhaustion = 0;
         defender.exhausted = 3.8;
@@ -898,9 +1053,7 @@ function firePrimary(game, defender) {
     playGameSound(game, 'signal');
     target.marked = Math.max(target.marked, 5.5);
     target.markedBy = defender.id;
-    if (defender.isPlayer && game.phase === 'innate') {
-      game.timeLeft = Math.max(0, game.timeLeft - 0.12);
-    }
+    if (defender.isPlayer) accelerateAdaptiveResponse(game, 0.035);
     defender.facing = Math.atan2(target.y - defender.y, target.x - defender.x);
     game.effects.push({
       type: 'signal',
@@ -1071,16 +1224,17 @@ function fireSpecial(game, defender) {
       bacterium.markedBy = defender.id;
     }
   }
-  game.effects.push({
-    type: 'countdown-boost',
-    x: defender.x,
-    y: defender.y,
-    color: '#fff3a8',
-    life: game.reducedMotion ? 0.4 : 1.05,
-    maxLife: game.reducedMotion ? 0.4 : 1.05,
-  });
-  game.responsePulse = 0.85;
-  game.timeLeft = Math.max(0, game.timeLeft - (defender.isPlayer ? 2.5 : 0.75));
+  const responseAdvanced = accelerateAdaptiveResponse(game, defender.isPlayer ? 0.18 : 0.05);
+  if (responseAdvanced) {
+    game.effects.push({
+      type: 'response-boost',
+      x: defender.x,
+      y: defender.y,
+      color: '#fff3a8',
+      life: game.reducedMotion ? 0.4 : 1.05,
+      maxLife: game.reducedMotion ? 0.4 : 1.05,
+    });
+  }
 }
 
 function divideBacteria(game) {
@@ -1110,7 +1264,20 @@ function beginAdaptiveResponse(game) {
   playGameSound(game, 'adaptive');
   game.phase = 'adaptive';
   game.responseStartedAt = game.elapsed;
+  game.timeLeft = 0;
   game.nextAntibody = 0;
+  if (game.adaptive) {
+    const node = game.adaptive.node;
+    game.adaptive.stage = 'antibodies';
+    game.adaptive.stageIndex = ADAPTIVE_RESPONSE_STAGES.length;
+    game.adaptive.progress = 1;
+    game.adaptive.phase = 0;
+    game.adaptive.plasmaCells = [
+      { x: node.x - 58, y: node.y + 54, phase: 0 },
+      { x: node.x + 4, y: node.y + 72, phase: 1.8 },
+      { x: node.x + 58, y: node.y + 48, phase: 3.4 },
+    ];
+  }
   for (const defender of game.defenders) {
     if (defender.role === 'macrophage') defender.rage = 20;
   }
@@ -1124,14 +1291,51 @@ function beginAdaptiveResponse(game) {
   });
 }
 
-function activateComplement(game) {
-  const target = game.bacteria
-    .filter((bacterium) => !bacterium.dead)
-    .sort((a, b) => a.marked - b.marked || Math.random() - 0.5)[0];
-  if (!target) return;
-  const wasMarked = target.marked > 0;
-  target.marked = Math.max(target.marked, 4.5);
-  damageBacterium(game, target, wasMarked ? 0.42 : 0.12, null, wasMarked ? 'mac' : 'burst');
+function updateAdaptiveResponse(game, dt) {
+  const response = game.adaptive;
+  if (!response) return;
+  response.elapsed += dt;
+  response.phase += dt * 3;
+  for (const plasmaCell of response.plasmaCells) plasmaCell.phase += dt * 3.4;
+  if (game.phase === 'adaptive') return;
+  if (response.elapsed >= 85) {
+    beginAdaptiveResponse(game);
+    return;
+  }
+
+  if (response.stage === 'sampling') {
+    response.passiveSampleTimer -= dt;
+    if (response.passiveSampleTimer <= 0) {
+      response.passiveSampleTimer = 4;
+      addAntigenClue(
+        game,
+        game.breach.x + randomBetween(-64, 64),
+        game.breach.y + randomBetween(-64, 64)
+      );
+    }
+    response.progress = response.samples / response.samplesNeeded;
+  } else if (response.stage === 'delivery') {
+    const nearbyThreat = nearestBacterium(game, response.courier, 118);
+    response.progress = clamp(response.progress + dt * (nearbyThreat ? 0.035 : 0.115), 0, 1);
+    const eased = 1 - (1 - response.progress) ** 2;
+    response.courier.x =
+      response.courier.startX + (response.courier.targetX - response.courier.startX) * eased;
+    response.courier.y =
+      response.courier.startY + (response.courier.targetY - response.courier.startY) * eased;
+  } else if (response.stage === 'matching') {
+    response.progress = clamp(response.progress + dt / 6.5, 0, 1);
+  } else if (response.stage === 'cloning') {
+    response.progress = clamp(response.progress + dt / 6.5, 0, 1);
+    response.bCellCopies = Math.max(1, 1 + Math.floor(response.progress * 7));
+  }
+
+  game.timeLeft = Math.ceil((1 - adaptiveOverallProgress(game)) * ROUND_TIME);
+  if (response.progress >= 1 && response.stage !== 'sampling') {
+    advanceAdaptiveResponseStage(game);
+  }
+}
+
+function addComplementEffect(game, target) {
   game.effects.push({
     type: 'complement',
     x: target.x,
@@ -1142,6 +1346,73 @@ function activateComplement(game) {
     life: 0.65,
     maxLife: 0.65,
   });
+}
+
+function ruptureWithComplement(game, target) {
+  if (!target || target.dead) return;
+  addComplementEffect(game, target);
+  damageBacterium(game, target, target.maxHp + 1, null, 'complement-lysis');
+}
+
+function activateComplement(game) {
+  const target = game.bacteria
+    .filter((bacterium) => !bacterium.dead)
+    .sort(
+      (a, b) =>
+        Number(b.antibodyCoated > 0) - Number(a.antibodyCoated > 0) ||
+        a.marked - b.marked ||
+        Math.random() - 0.5
+    )[0];
+  if (!target) return;
+  const isAntibodyCoated = target.antibodyCoated > 0;
+  const membraneRupture = isAntibodyCoated && Math.random() < 0.4;
+  const wasMarked = target.marked > 0;
+  target.marked = Math.max(target.marked, 4.5);
+  if (membraneRupture) {
+    ruptureWithComplement(game, target);
+    return;
+  }
+  damageBacterium(
+    game,
+    target,
+    isAntibodyCoated ? 0.24 : wasMarked ? 0.42 : 0.12,
+    null,
+    wasMarked ? 'mac' : 'burst'
+  );
+  addComplementEffect(game, target);
+}
+
+function applyAntibodyCoating(game, target) {
+  if (!target || target.dead) return;
+  const clusterId = target.antibodyCluster ?? target.id;
+  const partners = game.bacteria
+    .filter(
+      (bacterium) =>
+        bacterium.id !== target.id &&
+        !bacterium.dead &&
+        distance(target, bacterium) < 96 &&
+        bacterium.antibodyCoated <= 0
+    )
+    .sort((a, b) => distance(target, a) - distance(target, b))
+    .slice(0, 1);
+
+  for (const [index, bacterium] of [target, ...partners].entries()) {
+    const newlyCoated = bacterium.antibodyCoated <= 0;
+    if (bacterium.latchedTo) releaseHostCell(game, bacterium, true);
+    bacterium.hostTargetId = null;
+    bacterium.antibodyCoated = Math.max(bacterium.antibodyCoated, index === 0 ? 7.5 : 5.5);
+    bacterium.antibodyPulse = Math.max(bacterium.antibodyPulse, 0.32);
+    bacterium.clumped = Math.max(bacterium.clumped, index === 0 ? 5.5 : 4.5);
+    bacterium.marked = Math.max(bacterium.marked, 7.5);
+    bacterium.markedBy = null;
+    bacterium.antibodyCluster = clusterId;
+    bacterium.complementFuse = Math.min(
+      bacterium.complementFuse ?? Number.POSITIVE_INFINITY,
+      randomBetween(2.8, 4.6)
+    );
+    if (newlyCoated) game.germsCoated += 1;
+  }
+  addParticles(game, target.x, target.y, '#fff1a8', 6, 55);
 }
 
 function updateAI(game, cell, dt) {
@@ -1496,6 +1767,7 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
   }
 
   if (game.experience === 'defense') {
+    updateAdaptiveResponse(game, dt);
     game.nextReinforcement -= dt;
     if (game.nextReinforcement <= 0) {
       const reinforced = spawnDefenderReinforcementWave(game);
@@ -1504,13 +1776,11 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
   }
 
   if (game.phase === 'innate' && game.experience === 'defense') {
-    game.timeLeft = Math.max(0, game.timeLeft - dt);
     game.nextDivision -= dt;
     if (game.nextDivision <= 0) {
       divideBacteria(game);
       game.nextDivision = Math.max(3.1, 4.9 - game.elapsed * 0.025);
     }
-    if (game.timeLeft <= 0) beginAdaptiveResponse(game);
   } else if (game.phase === 'innate') {
     game.timeLeft = ROUND_TIME;
     if (game.education?.stage >= 1 && game.education.stage <= 3) {
@@ -1527,16 +1797,18 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
         .filter((bacterium) => !bacterium.dead)
         .sort(() => Math.random() - 0.5)
         .slice(0, 2);
-      for (const target of targets) {
-        target.clumped = Math.max(target.clumped, 4);
-        target.marked = Math.max(target.marked, 5);
-        damageBacterium(game, target, 0.22, null, 'antibody');
+      for (const [index, target] of targets.entries()) {
+        const plasmaCells = game.adaptive?.plasmaCells ?? [];
+        const factory = plasmaCells[(game.antibodyHits + index) % Math.max(1, plasmaCells.length)];
         game.effects.push({
           type: 'antibody',
           x: target.x,
           y: target.y,
-          fromX: target.x + randomBetween(-100, 100),
-          fromY: -30,
+          targetId: target.id,
+          owner: target,
+          applied: false,
+          fromX: factory?.x ?? target.x + randomBetween(-100, 100),
+          fromY: factory?.y ?? -30,
           color: '#fff1a8',
           life: 0.75,
           maxLife: 0.75,
@@ -1601,9 +1873,32 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
     bacterium.bonusHit = Math.max(0, bacterium.bonusHit - dt);
     if (bacterium.marked === 0) bacterium.markedBy = null;
     bacterium.clumped = Math.max(0, bacterium.clumped - dt);
+    bacterium.antibodyCoated = Math.max(0, bacterium.antibodyCoated - dt);
+    bacterium.antibodyPulse = Math.max(0, bacterium.antibodyPulse - dt);
+    if (bacterium.antibodyCoated === 0) {
+      bacterium.antibodyCluster = null;
+      bacterium.complementFuse = null;
+    }
     bacterium.dividing = Math.max(0, bacterium.dividing - dt);
     bacterium.wiggle += dt * 7;
     if (bacterium.dead) continue;
+
+    if (
+      game.phase === 'adaptive' &&
+      bacterium.antibodyCoated > 0 &&
+      bacterium.complementFuse != null
+    ) {
+      bacterium.complementFuse -= dt;
+      if (bacterium.complementFuse <= 0) {
+        bacterium.complementFuse = null;
+        ruptureWithComplement(game, bacterium);
+        continue;
+      }
+    }
+
+    if (bacterium.antibodyCoated > 0 && bacterium.latchedTo) {
+      releaseHostCell(game, bacterium, true);
+    }
 
     if (bacterium.latchedTo) {
       const hostCell = game.hostCells.find(
@@ -1620,7 +1915,7 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
     }
 
     let hostTarget = null;
-    if (bacterium.hunter && bacterium.clumped <= 0) {
+    if (bacterium.hunter && bacterium.clumped <= 0 && bacterium.antibodyCoated <= 0) {
       hostTarget = game.hostCells.find(
         (cell) => cell.id === bacterium.hostTargetId && cell.dying <= 0 && !cell.attackerId
       );
@@ -1651,7 +1946,14 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
       bacterium.angle = Math.atan2(dy, dx);
     }
 
-    const speedFactor = bacterium.clumped > 0 ? 0.1 : bacterium.marked > 0 ? 0.62 : 1;
+    const speedFactor =
+      bacterium.clumped > 0
+        ? 0.08
+        : bacterium.antibodyCoated > 0
+          ? 0.25
+          : bacterium.marked > 0
+            ? 0.62
+            : 1;
     bacterium.x += bacterium.vx * dt * speedFactor;
     bacterium.y += bacterium.vy * dt * speedFactor;
     if (bacterium.x < 22 || bacterium.x > game.width - 22) bacterium.vx *= -1;
@@ -1687,6 +1989,13 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
 
   for (const effect of game.effects) {
     effect.life -= dt;
+    if (effect.type === 'antibody' && !effect.applied && effect.life <= effect.maxLife * 0.18) {
+      const target = game.bacteria.find(
+        (bacterium) => bacterium.id === effect.targetId && !bacterium.dead
+      );
+      if (target) applyAntibodyCoating(game, target);
+      effect.applied = true;
+    }
     if (effect.type === 'net') {
       const progress = 1 - effect.life / effect.maxLife;
       const radius = effect.radius * Math.min(1, progress * 3.5);
@@ -1916,6 +2225,37 @@ function drawHostCell(ctx, hostCell, game) {
   }
 }
 
+function drawAntibodyClusters(ctx, game) {
+  const clusters = new Map();
+  for (const bacterium of game.bacteria) {
+    if (bacterium.antibodyCoated <= 0 || bacterium.antibodyCluster == null) continue;
+    const members = clusters.get(bacterium.antibodyCluster) ?? [];
+    members.push(bacterium);
+    clusters.set(bacterium.antibodyCluster, members);
+  }
+
+  ctx.save();
+  ctx.lineCap = 'round';
+  for (const members of clusters.values()) {
+    if (members.length < 2) continue;
+    const anchor = members[0];
+    for (const partner of members.slice(1)) {
+      const midpointX = (anchor.x + partner.x) / 2;
+      const midpointY = (anchor.y + partner.y) / 2;
+      ctx.strokeStyle = 'rgba(255, 241, 168, 0.68)';
+      ctx.lineWidth = Math.max(2, 3.5 * game.bacteriaScale);
+      ctx.setLineDash([5 * game.bacteriaScale, 4 * game.bacteriaScale]);
+      ctx.beginPath();
+      ctx.moveTo(anchor.x, anchor.y);
+      ctx.lineTo(partner.x, partner.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      drawAntibody(ctx, midpointX, midpointY, 0.48 * game.bacteriaScale);
+    }
+  }
+  ctx.restore();
+}
+
 function drawBacterium(ctx, bacterium, game) {
   const { bacteriaScale, reducedMotion } = game;
   ctx.save();
@@ -1926,9 +2266,6 @@ function drawBacterium(ctx, bacterium, game) {
   if (bacterium.clumped > 0) {
     ctx.shadowColor = '#fff2a6';
     ctx.shadowBlur = 18;
-  } else if (bacterium.marked > 0) {
-    ctx.shadowColor = '#8df29a';
-    ctx.shadowBlur = 14;
   }
   ctx.fillStyle = bacterium.hit > 0 ? '#fff' : '#ef507d';
   ctx.strokeStyle = '#721b4b';
@@ -1968,7 +2305,36 @@ function drawBacterium(ctx, bacterium, game) {
   }
   ctx.restore();
 
-  if (bacterium.marked > 0) {
+  if (bacterium.antibodyCoated > 0) {
+    const expiryAlpha = clamp(bacterium.antibodyCoated / 0.8, 0.3, 1);
+    const pulse = game.reducedMotion
+      ? 0
+      : Math.sin(game.elapsed * 8 + bacterium.id) * 1.4 * bacteriaScale;
+    ctx.save();
+    ctx.translate(bacterium.x, bacterium.y);
+    ctx.globalAlpha *= expiryAlpha;
+    for (let index = 0; index < 3; index += 1) {
+      const angle = (index / 3) * TAU + bacterium.id * 0.47;
+      const radius = 27 * bacteriaScale + pulse;
+      ctx.save();
+      ctx.translate(Math.cos(angle) * radius, Math.sin(angle) * radius);
+      ctx.rotate(angle + Math.PI / 2);
+      drawAntibody(ctx, 0, 0, 0.48 * bacteriaScale);
+      ctx.restore();
+    }
+    if (bacterium.antibodyPulse > 0) {
+      const progress = 1 - bacterium.antibodyPulse / 0.32;
+      ctx.strokeStyle = '#fff3ad';
+      ctx.lineWidth = Math.max(2, 3 * bacteriaScale * (1 - progress * 0.45));
+      ctx.globalAlpha *= 1 - progress;
+      ctx.beginPath();
+      ctx.arc(0, 0, (28 + progress * 22) * bacteriaScale, 0, TAU);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  if (bacterium.marked > 0 && bacterium.antibodyCoated <= 0) {
     const helperMarked = bacterium.markedBy != null;
     const pulse = reducedMotion ? 0 : (Math.sin(game.elapsed * 6 + bacterium.id) + 1) * 0.5;
     const radius = (31 + pulse * 1.5) * bacteriaScale;
@@ -2000,7 +2366,7 @@ function drawBacterium(ctx, bacterium, game) {
   }
 
   if (bacterium.bonusHit > 0) {
-    const hitProgress = 1 - bacterium.bonusHit / 0.22;
+    const hitProgress = reducedMotion ? 0.35 : 1 - bacterium.bonusHit / 0.22;
     ctx.save();
     ctx.translate(bacterium.x, bacterium.y);
     ctx.globalAlpha = 1 - hitProgress;
@@ -2539,6 +2905,32 @@ function drawEffects(ctx, game) {
           ctx.stroke();
         }
       }
+    } else if (effect.type === 'antigen-clue') {
+      const targetX = effect.owner?.x ?? effect.x;
+      const targetY = effect.owner?.y ?? effect.y;
+      const travel = game.reducedMotion ? 1 : 1 - (1 - progress) ** 3;
+      const x = effect.fromX + (targetX - effect.fromX) * travel;
+      const y = effect.fromY + (targetY - effect.fromY) * travel;
+      ctx.strokeStyle = 'rgba(255, 211, 224, 0.72)';
+      ctx.lineWidth = Math.max(1.5, 2.4 * bacteriaScale);
+      if (!game.reducedMotion) {
+        ctx.beginPath();
+        ctx.moveTo(effect.fromX, effect.fromY);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+      }
+      ctx.translate(x, y);
+      if (!game.reducedMotion) ctx.rotate(progress * Math.PI * 3);
+      ctx.fillStyle = effect.color;
+      ctx.strokeStyle = '#fff3d6';
+      ctx.lineWidth = Math.max(1.5, 2 * bacteriaScale);
+      ctx.beginPath();
+      ctx.moveTo(0, -8 * bacteriaScale);
+      ctx.lineTo(8 * bacteriaScale, 5 * bacteriaScale);
+      ctx.lineTo(-8 * bacteriaScale, 5 * bacteriaScale);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
     } else if (effect.type === 'cell-rescue') {
       ctx.strokeStyle = effect.color;
       ctx.lineWidth = Math.max(2, 4 * cellScale * (1 - progress * 0.5));
@@ -2724,7 +3116,7 @@ function drawEffects(ctx, game) {
         TAU
       );
       ctx.stroke();
-    } else if (effect.type === 'countdown-boost') {
+    } else if (effect.type === 'response-boost') {
       const targetX = clamp(game.width * 0.3, 116, Math.min(430, game.width - 70));
       const targetY = 91;
       const travel = game.reducedMotion ? 1 : 1 - (1 - clamp(progress * 1.55, 0, 1)) ** 3;
@@ -2746,7 +3138,7 @@ function drawEffects(ctx, game) {
         ctx.font = `900 ${Math.round(clamp(12, 15 * cellScale, 16))}px Inter, system-ui, sans-serif`;
         ctx.textAlign = 'center';
         ctx.fillStyle = '#f4fff1';
-        ctx.fillText('-2.5s', targetX, targetY - 15);
+        ctx.fillText('BOOST!', targetX, targetY - 15);
       }
     } else if (effect.type === 'net') {
       const radius = effect.radius * Math.min(1, progress * 3.5);
@@ -2767,10 +3159,38 @@ function drawEffects(ctx, game) {
       ctx.beginPath();
       ctx.arc(effect.x, effect.y, radius * 0.72, 0, TAU);
       ctx.stroke();
+    } else if (effect.type === 'complement-lysis') {
+      const rupture = game.reducedMotion ? 0.65 : progress;
+      ctx.translate(effect.x, effect.y);
+      ctx.strokeStyle = '#bdf5ff';
+      ctx.lineWidth = Math.max(2, 4 * bacteriaScale * (1 - rupture * 0.5));
+      for (const radius of [12, 22]) {
+        ctx.beginPath();
+        ctx.arc(0, 0, (radius + rupture * 26) * bacteriaScale, 0, TAU);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = '#fff4b5';
+      ctx.lineWidth = Math.max(1.5, 3 * bacteriaScale);
+      for (let index = 0; index < 8; index += 1) {
+        const angle = (index / 8) * TAU;
+        const inner = (8 + rupture * 10) * bacteriaScale;
+        const outer = (22 + rupture * 34) * bacteriaScale;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(angle) * inner, Math.sin(angle) * inner);
+        ctx.lineTo(Math.cos(angle) * outer, Math.sin(angle) * outer);
+        ctx.stroke();
+      }
     } else if (effect.type === 'antibody') {
-      const x = effect.fromX + (effect.x - effect.fromX) * progress;
-      const y = effect.fromY + (effect.y - effect.fromY) * progress;
-      drawAntibody(ctx, x, y, 1.1 * bacteriaScale);
+      const targetX = effect.owner?.x ?? effect.x;
+      const targetY = effect.owner?.y ?? effect.y;
+      const travel = game.reducedMotion ? 1 : 1 - (1 - progress) ** 3;
+      const x = effect.fromX + (targetX - effect.fromX) * travel;
+      const y = effect.fromY + (targetY - effect.fromY) * travel;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(Math.atan2(targetY - effect.fromY, targetX - effect.fromX) + Math.PI / 2);
+      drawAntibody(ctx, 0, 0, 1.1 * bacteriaScale);
+      ctx.restore();
     } else if (effect.type === 'complement') {
       const x = effect.fromX + (effect.x - effect.fromX) * progress;
       const y = effect.fromY + (effect.y - effect.fromY) * progress;
@@ -2962,11 +3382,188 @@ function drawEducationActors(ctx, game) {
   }
 }
 
+function drawLymphNode(ctx, x, y, active = false) {
+  ctx.save();
+  ctx.globalAlpha = active ? 1 : 0.58;
+  ctx.fillStyle = 'rgba(92, 63, 130, 0.78)';
+  ctx.strokeStyle = active ? '#fff1a8' : '#d6b7ef';
+  ctx.lineWidth = active ? 3 : 2;
+  for (const [offsetX, offsetY, radius] of [
+    [-15, 5, 22],
+    [12, -7, 24],
+    [14, 18, 18],
+  ]) {
+    ctx.beginPath();
+    ctx.arc(x + offsetX, y + offsetY, radius, 0, TAU);
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.fillStyle = '#fff4ff';
+  ctx.font = '800 10px Inter, system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('LYMPH NODE', x, y + 48);
+  ctx.restore();
+}
+
+function drawDendriticCell(ctx, response, game) {
+  const courier = response.courier;
+  ctx.save();
+  ctx.translate(courier.x, courier.y);
+  const pulse = game.reducedMotion ? 1 : 1 + Math.sin(response.phase * 1.6) * 0.05;
+  ctx.scale(game.cellScale * pulse, game.cellScale * pulse);
+  ctx.strokeStyle = '#d9fff7';
+  ctx.lineWidth = 5;
+  ctx.lineCap = 'round';
+  for (let index = 0; index < 8; index += 1) {
+    const angle = (index / 8) * TAU + (game.reducedMotion ? 0 : response.phase * 0.08);
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(angle) * 13, Math.sin(angle) * 13);
+    ctx.lineTo(Math.cos(angle) * 34, Math.sin(angle) * 34);
+    ctx.stroke();
+  }
+  ctx.fillStyle = '#62e2c7';
+  ctx.strokeStyle = '#176d78';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(0, 0, 22, 0, TAU);
+  ctx.fill();
+  ctx.stroke();
+  const clueCount = Math.min(5, response.samples);
+  ctx.fillStyle = '#ff9bb6';
+  ctx.strokeStyle = '#fff3d6';
+  ctx.lineWidth = 1.5;
+  for (let index = 0; index < clueCount; index += 1) {
+    const angle = (index / Math.max(1, clueCount)) * TAU + 0.4;
+    ctx.beginPath();
+    ctx.arc(Math.cos(angle) * 18, Math.sin(angle) * 18, 4, 0, TAU);
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
+  ctx.save();
+  ctx.fillStyle = '#eafff8';
+  ctx.font = '800 10px Inter, system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('DENDRITIC CELL', courier.x, courier.y + 42 * game.cellScale + 12);
+  ctx.restore();
+}
+
+function drawAdaptiveActors(ctx, game) {
+  const response = game.adaptive;
+  if (!response || game.experience !== 'defense') return;
+  const nodeActive = ['matching', 'cloning', 'antibodies'].includes(response.stage);
+  drawLymphNode(ctx, response.node.x, response.node.y, nodeActive);
+
+  if (['sampling', 'delivery'].includes(response.stage)) {
+    if (response.stage === 'delivery') {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(217, 255, 247, 0.46)';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([8, 8]);
+      ctx.beginPath();
+      ctx.moveTo(response.courier.startX, response.courier.startY);
+      ctx.lineTo(response.courier.targetX, response.courier.targetY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      const danger = nearestBacterium(game, response.courier, 118);
+      if (danger) {
+        ctx.strokeStyle = '#ffb197';
+        ctx.lineWidth = 2.5;
+        ctx.setLineDash([4, 6]);
+        ctx.beginPath();
+        ctx.arc(response.courier.x, response.courier.y, 58 * game.cellScale, 0, TAU);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+    drawDendriticCell(ctx, response, game);
+  }
+
+  if (['matching', 'cloning'].includes(response.stage)) {
+    const helperX = response.node.x - 52;
+    const helperY = response.node.y + 66;
+    const bCellX = response.node.x + 36;
+    const bCellY = response.node.y + 68;
+    ctx.save();
+    ctx.strokeStyle = '#fff3a8';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(helperX + 18, helperY);
+    ctx.lineTo(bCellX - 18, bCellY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.translate(helperX, helperY);
+    ctx.scale(game.cellScale, game.cellScale);
+    drawHelper(ctx, ROLES.helper.color);
+    ctx.restore();
+
+    const copies = response.stage === 'cloning' ? response.bCellCopies : 1;
+    for (let index = 0; index < copies; index += 1) {
+      const spread = copies === 1 ? 0 : 18 + Math.ceil(copies / 3) * 4;
+      const angle = (index / copies) * TAU + (game.reducedMotion ? 0 : response.phase * 0.08);
+      const x = bCellX + Math.cos(angle) * spread;
+      const y = bCellY + Math.sin(angle) * spread;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(game.cellScale * 0.78, game.cellScale * 0.78);
+      ctx.fillStyle = '#c58cff';
+      ctx.strokeStyle = '#fff1df';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, 21, 0, TAU);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#5b397d';
+      ctx.beginPath();
+      ctx.arc(-3, 1, 9, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.save();
+    ctx.fillStyle = '#f4fff1';
+    ctx.font = '800 10px Inter, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('HELPER T', helperX, helperY + 42);
+    ctx.fillText(
+      response.stage === 'matching' ? 'MATCHING B CELL' : 'B CELLS CLONING',
+      bCellX,
+      bCellY + 48
+    );
+    ctx.restore();
+  }
+
+  for (const plasmaCell of response.plasmaCells) {
+    ctx.save();
+    ctx.translate(plasmaCell.x, plasmaCell.y);
+    const pulse = game.reducedMotion ? 1 : 1 + Math.sin(plasmaCell.phase) * 0.045;
+    ctx.scale(game.cellScale * pulse, game.cellScale * pulse);
+    ctx.fillStyle = '#c58cff';
+    ctx.strokeStyle = '#fff1a8';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, 0, 27, 0, TAU);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#5b397d';
+    ctx.beginPath();
+    ctx.ellipse(-4, 2, 13, 10, -0.4, 0, TAU);
+    ctx.fill();
+    for (let index = 0; index < 3; index += 1) {
+      const angle = (index / 3) * TAU + plasmaCell.phase * 0.2;
+      drawAntibody(ctx, Math.cos(angle) * 42, Math.sin(angle) * 42, 0.55);
+    }
+    ctx.restore();
+  }
+}
+
 function drawGame(ctx, game) {
   drawBackground(ctx, game);
   drawHelperTargeting(ctx, game);
   for (const hostCell of game.hostCells) drawHostCell(ctx, hostCell, game);
+  drawAntibodyClusters(ctx, game);
   for (const bacterium of game.bacteria) drawBacterium(ctx, bacterium, game);
+  drawAdaptiveActors(ctx, game);
   drawEducationActors(ctx, game);
   for (const cell of game.defenders) drawDefender(ctx, cell, game);
   drawEffects(ctx, game);
@@ -3009,6 +3606,7 @@ function snapshotFromGame(game) {
           : 1,
       kills: cell.kills,
     }));
+  const responseStatus = adaptiveStatus(game);
   return {
     mode: game.mode,
     experience: game.experience,
@@ -3021,10 +3619,19 @@ function snapshotFromGame(game) {
     players,
     earlyClear: game.earlyClear,
     antibodyHits: game.antibodyHits,
+    germsCoated: game.germsCoated,
     hostCellsSaved: game.hostCellsSaved,
     hostCellsLost: game.hostCellsLost,
     criticalTissue: game.criticalTissue,
     responsePulse: game.responsePulse > 0,
+    responseTitle: responseStatus.title,
+    responseDetail: responseStatus.detail,
+    responseProgress: adaptiveOverallProgress(game),
+    responseStageIndex:
+      game.phase === 'adaptive'
+        ? ADAPTIVE_RESPONSE_STAGES.length
+        : (game.adaptive?.stageIndex ?? 0),
+    responseStageProgress: game.phase === 'adaptive' ? 1 : (game.adaptive?.progress ?? 0),
     lessonStage: game.education?.stage ?? 0,
     lessonBeat: game.education?.beat ?? 0,
     lessonProgress: game.education?.progress ?? 0,
@@ -3046,10 +3653,16 @@ const INITIAL_SNAPSHOT = {
   players: [],
   earlyClear: false,
   antibodyHits: 0,
+  germsCoated: 0,
   hostCellsSaved: 0,
   hostCellsLost: 0,
   criticalTissue: 0,
   responsePulse: false,
+  responseTitle: 'Find germ clues',
+  responseDetail: '0/0 clues collected',
+  responseProgress: 0,
+  responseStageIndex: 0,
+  responseStageProgress: 0,
   lessonStage: 0,
   lessonBeat: 0,
   lessonProgress: 0,
@@ -3218,6 +3831,35 @@ export function ImmunePage() {
           hostCell.x *= scaleX;
           hostCell.baseY = clamp(hostCell.baseY * scaleY, 100, height - 44);
           hostCell.y = clamp(hostCell.y * scaleY, 78, height - 24);
+        }
+        if (game.adaptive) {
+          const response = game.adaptive;
+          response.node.x = width - 104;
+          response.node.y = 124;
+          response.courier.startX = game.breach.x + 72;
+          response.courier.startY = game.breach.y - 44;
+          response.courier.targetX = response.node.x;
+          response.courier.targetY = response.node.y;
+          const courierProgress =
+            response.stage === 'sampling'
+              ? 0
+              : response.stage === 'delivery'
+                ? response.progress
+                : 1;
+          const eased = 1 - (1 - courierProgress) ** 2;
+          response.courier.x =
+            response.courier.startX + (response.courier.targetX - response.courier.startX) * eased;
+          response.courier.y =
+            response.courier.startY + (response.courier.targetY - response.courier.startY) * eased;
+          response.plasmaCells.forEach((plasmaCell, index) => {
+            const offsets = [
+              [-58, 54],
+              [4, 72],
+              [58, 48],
+            ];
+            plasmaCell.x = response.node.x + offsets[index][0];
+            plasmaCell.y = response.node.y + offsets[index][1];
+          });
         }
         if (game.education?.courier) {
           const courier = game.education.courier;
@@ -3623,18 +4265,12 @@ export function ImmunePage() {
         >
           <div className="immune-hud__mission">
             <strong>
-              {snapshot.experience === 'education'
-                ? currentLesson.title
-                : snapshot.phase === 'innate'
-                  ? 'Hold the breach'
-                  : 'Antibody response'}
+              {snapshot.experience === 'education' ? currentLesson.title : snapshot.responseTitle}
             </strong>
             <span>
               {snapshot.experience === 'education'
                 ? currentLesson.objective
-                : snapshot.phase === 'innate'
-                  ? `Big guns in ${snapshot.timeLeft}s`
-                  : 'Antibodies are clumping invaders'}
+                : snapshot.responseDetail}
             </span>
           </div>
           {snapshot.experience === 'education' ? (
@@ -3681,23 +4317,17 @@ export function ImmunePage() {
                 ? 'Immune Journey progress'
                 : 'Adaptive response progress'
             }
-            aria-valuemax={
-              snapshot.experience === 'education' ? LEARNING_STAGES.length : ROUND_TIME
-            }
+            aria-valuemax={snapshot.experience === 'education' ? LEARNING_STAGES.length : 1}
             aria-valuemin={0}
             aria-valuenow={
               snapshot.experience === 'education'
                 ? snapshot.lessonStage + snapshot.lessonProgress
-                : snapshot.phase === 'adaptive'
-                  ? ROUND_TIME
-                  : ROUND_TIME - snapshot.timeLeft
+                : snapshot.responseProgress
             }
             aria-valuetext={
               snapshot.experience === 'education'
                 ? `${currentLesson.title}: ${snapshot.lessonProgressLabel}`
-                : snapshot.phase === 'adaptive'
-                  ? 'Antibodies have arrived'
-                  : `${snapshot.timeLeft} seconds until antibodies arrive`
+                : `${snapshot.responseTitle}: ${snapshot.responseDetail}`
             }
             role="progressbar"
           >
@@ -3706,13 +4336,39 @@ export function ImmunePage() {
                 transform: `scaleX(${
                   snapshot.experience === 'education'
                     ? (snapshot.lessonStage + snapshot.lessonProgress) / LEARNING_STAGES.length
-                    : snapshot.phase === 'adaptive'
-                      ? 1
-                      : 1 - snapshot.timeLeft / ROUND_TIME
+                    : snapshot.responseProgress
                 })`,
               }}
             />
           </div>
+          {snapshot.experience === 'defense' && (
+            <ol className="immune-response-steps" aria-label="Steps to make antibodies">
+              {ADAPTIVE_RESPONSE_STAGES.map((stage, index) => (
+                <li
+                  className={
+                    index < snapshot.responseStageIndex
+                      ? 'is-complete'
+                      : index === snapshot.responseStageIndex
+                        ? 'is-current'
+                        : ''
+                  }
+                  key={stage.id}
+                  style={{
+                    '--response-stage-fill': `${
+                      index < snapshot.responseStageIndex
+                        ? 360
+                        : index === snapshot.responseStageIndex
+                          ? snapshot.responseStageProgress * 360
+                          : 0
+                    }deg`,
+                  }}
+                >
+                  <span aria-hidden="true">{stage.icon}</span>
+                  <small>{stage.label}</small>
+                </li>
+              ))}
+            </ol>
+          )}
           {snapshot.experience === 'education' && (
             <div className="immune-learning-guide">
               <ol aria-label="Immune response stages">
@@ -3823,7 +4479,7 @@ export function ImmunePage() {
             >
               <strong>{ROLES[snapshot.players[0].role].special}</strong>
               <small>
-                {snapshot.players[0].role === 'helper' ? 'Faster antibodies' : 'Special'}
+                {snapshot.players[0].role === 'helper' ? 'Build plasma cells' : 'Special'}
               </small>
             </button>
           </div>
@@ -3860,7 +4516,7 @@ export function ImmunePage() {
           <p className="immune-setup__intro">
             {config.experience === 'education'
               ? 'Guide each part of the response and learn how your body turns a local alarm into lasting immune memory.'
-              : 'Damaged cells are crying for help. Choose your defenders, then hold back the multiplying bacteria until antibodies arrive.'}
+              : 'Damaged cells are crying for help. Fight for germ clues, guard the dendritic courier, and help B cells build antibody factories.'}
           </p>
 
           <fieldset className="immune-mode-select">
@@ -4016,7 +4672,7 @@ export function ImmunePage() {
                   <strong>{snapshot.destroyed}</strong> bacteria cleared
                 </span>
                 <span>
-                  <strong>{snapshot.antibodyHits}</strong> antibody hits
+                  <strong>{snapshot.germsCoated}</strong> germs coated
                 </span>
                 <span>
                   <strong>Formed</strong> immune memory
@@ -4031,7 +4687,7 @@ export function ImmunePage() {
                   <strong>{snapshot.integrity}%</strong> tissue left
                 </span>
                 <span>
-                  <strong>{snapshot.antibodyHits}</strong> antibody hits
+                  <strong>{snapshot.germsCoated}</strong> germs coated
                 </span>
                 <span>
                   <strong>{snapshot.hostCellsSaved}</strong> cells saved
