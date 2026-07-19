@@ -225,6 +225,7 @@ function makeAdaptiveResponse(width, height, population) {
       wanderY: startY - 44,
       wanderTimer: 0,
       sampleCooldown: 0,
+      travelSpeed: 68,
       facing: 0,
     },
     node: { x: width - 104, y: 124 },
@@ -240,17 +241,22 @@ function adaptiveOverallProgress(game) {
   return clamp((response.stageIndex + response.progress) / ADAPTIVE_RESPONSE_STAGES.length, 0, 1);
 }
 
+function playerDendritic(game) {
+  return game.defenders.find((cell) => cell.isPlayer && cell.role === 'dendritic') ?? null;
+}
+
 function adaptiveStatus(game) {
   if (game.phase === 'adaptive') {
     return {
       title: 'Plasma-cell factories are here!',
-      detail: 'They roam and send sticky antibodies to germs',
+      detail: 'Antibodies pin germs; defender cells must clear them',
     };
   }
   const response = game.adaptive;
   if (!response || response.stage === 'sampling') {
+    const isPlayerScout = Boolean(playerDendritic(game));
     return {
-      title: 'Dendritic scout is sampling',
+      title: isPlayerScout ? 'Gather germ bits' : 'Dendritic scout is sampling',
       detail: `${response?.samples ?? 0}/${response?.samplesNeeded ?? 0} germ bits gathered`,
     };
   }
@@ -401,7 +407,6 @@ function makeBacterium(game, x, y, generation = 0) {
     antibodyCoated: 0,
     antibodyCluster: null,
     antibodyPulse: 0,
-    complementFuse: null,
     dividing: 0,
     hunter: Math.random() < 0.28,
     hostTargetId: null,
@@ -896,6 +901,23 @@ function lymphaticPathPoint(courier, progress) {
   };
 }
 
+function advanceCourierAtSteadySpeed(courier, progress, dt, speed = 84) {
+  const inverse = 1 - progress;
+  const derivativeX =
+    2 * inverse * (courier.controlX - courier.startX) +
+    2 * progress * (courier.targetX - courier.controlX);
+  const derivativeY =
+    2 * inverse * (courier.controlY - courier.startY) +
+    2 * progress * (courier.targetY - courier.controlY);
+  const pathSpeed = Math.max(32, Math.hypot(derivativeX, derivativeY));
+  const nextProgress = clamp(progress + (speed * dt) / pathSpeed, 0, 1);
+  const pathPoint = lymphaticPathPoint(courier, nextProgress);
+  courier.facing = Math.atan2(pathPoint.y - courier.y, pathPoint.x - courier.x);
+  courier.x = pathPoint.x;
+  courier.y = pathPoint.y;
+  return nextProgress;
+}
+
 function advanceAdaptiveResponseStage(game) {
   const response = game.adaptive;
   if (!response || game.phase === 'adaptive') return;
@@ -909,8 +931,11 @@ function advanceAdaptiveResponseStage(game) {
   response.progress = 0;
   response.phase = 0;
   if (response.stage === 'delivery') {
-    response.courier.startX = response.courier.x;
-    response.courier.startY = response.courier.y;
+    const playableCourier = playerDendritic(game);
+    response.courier.startX = playableCourier?.x ?? response.courier.x;
+    response.courier.startY = playableCourier?.y ?? response.courier.y;
+    response.courier.x = response.courier.startX;
+    response.courier.y = response.courier.startY;
     response.courier.controlX = clamp(
       (response.courier.startX + response.node.x) / 2 + game.width * 0.08,
       80,
@@ -924,7 +949,8 @@ function advanceAdaptiveResponseStage(game) {
   }
   game.responsePulse = 0.9;
   playGameSound(game, 'stageComplete');
-  const focus = response.stage === 'delivery' ? response.courier : response.node;
+  const focus =
+    response.stage === 'delivery' ? (playerDendritic(game) ?? response.courier) : response.node;
   game.effects.push({
     type: 'rally',
     x: focus.x,
@@ -1060,9 +1086,12 @@ function firePrimary(game, defender) {
 
     if (response && ['delivery', 'matching', 'cloning'].includes(response.stage)) {
       const atNode = distance(defender, response.node) < 138;
-      const amount = atNode ? 0.16 : 0.045;
       if (response.stage === 'delivery') {
-        response.progress = clamp(response.progress + amount, 0, 1);
+        if (!atNode) {
+          playGameSound(game, 'signal');
+          return;
+        }
+        response.progress = clamp(response.progress + 0.18, 0, 1);
         if (response.progress >= 1) advanceAdaptiveResponseStage(game);
       } else {
         accelerateAdaptiveResponse(game, atNode ? 0.12 : 0.045);
@@ -1292,12 +1321,12 @@ function fireSpecial(game, defender) {
 
     if (response && ['delivery', 'matching', 'cloning'].includes(response.stage)) {
       const atNode = distance(defender, response.node) < 160;
-      const boost = atNode ? 0.28 : 0.16;
       if (response.stage === 'delivery') {
-        response.progress = clamp(response.progress + boost, 0, 1);
+        if (!atNode) return;
+        response.progress = clamp(response.progress + 0.32, 0, 1);
         if (response.progress >= 1) advanceAdaptiveResponseStage(game);
       } else {
-        accelerateAdaptiveResponse(game, boost);
+        accelerateAdaptiveResponse(game, atNode ? 0.28 : 0.16);
       }
       game.effects.push({
         type: 'signal',
@@ -1615,29 +1644,40 @@ function updateAdaptiveResponse(game, dt) {
   }
 
   if (response.stage === 'sampling') {
-    updateDendriticSampling(game, response, dt);
+    const playableCourier = playerDendritic(game);
+    if (playableCourier) {
+      response.passiveSampleTimer -= dt;
+      if (response.passiveSampleTimer <= 0) {
+        response.passiveSampleTimer = 4;
+        leaveAntigenFragment(
+          game,
+          game.breach.x + randomBetween(-42, 42),
+          game.breach.y + randomBetween(-42, 42)
+        );
+      }
+    } else {
+      updateDendriticSampling(game, response, dt);
+    }
     if (response.stage === 'sampling') {
       response.progress = response.samples / response.samplesNeeded;
     }
   } else if (response.stage === 'delivery') {
-    const nearbyThreat = nearestBacterium(game, response.courier, 118);
-    const dendriticAtNode = game.defenders.some(
-      (cell) => cell.isPlayer && cell.role === 'dendritic' && distance(cell, response.node) < 128
-    );
-    const playerDeliveryBoost = dendriticAtNode ? 0.18 : 0;
-    response.progress = clamp(
-      response.progress + dt * ((nearbyThreat ? 0.035 : 0.115) + playerDeliveryBoost),
-      0,
-      1
-    );
-    const eased = 1 - (1 - response.progress) ** 2;
-    const pathPoint = lymphaticPathPoint(response.courier, eased);
-    response.courier.facing = Math.atan2(
-      pathPoint.y - response.courier.y,
-      pathPoint.x - response.courier.x
-    );
-    response.courier.x = pathPoint.x;
-    response.courier.y = pathPoint.y;
+    const playableCourier = playerDendritic(game);
+    if (playableCourier) {
+      const atNode = distance(playableCourier, response.node) < 128;
+      if (atNode) response.progress = clamp(response.progress + dt * 0.34, 0, 1);
+    } else {
+      const nearbyThreat = nearestBacterium(game, response.courier, 118);
+      const targetSpeed = nearbyThreat ? 58 : 84;
+      response.courier.travelSpeed +=
+        (targetSpeed - response.courier.travelSpeed) * Math.min(1, dt * 1.6);
+      response.progress = advanceCourierAtSteadySpeed(
+        response.courier,
+        response.progress,
+        dt,
+        response.courier.travelSpeed
+      );
+    }
   } else if (response.stage === 'matching') {
     response.progress = clamp(response.progress + dt / 6.5, 0, 1);
   } else if (response.stage === 'cloning') {
@@ -1681,36 +1721,35 @@ function activateComplement(game) {
     )[0];
   if (!target) return;
   const isAntibodyCoated = target.antibodyCoated > 0;
-  const membraneRupture = isAntibodyCoated && Math.random() < 0.4;
-  const wasMarked = target.marked > 0;
+  const membraneRupture = isAntibodyCoated && Math.random() < 0.08;
   target.marked = Math.max(target.marked, 4.5);
   if (membraneRupture) {
     ruptureWithComplement(game, target);
     return;
   }
-  damageBacterium(
-    game,
-    target,
-    isAntibodyCoated ? 0.24 : wasMarked ? 0.42 : 0.12,
-    null,
-    wasMarked ? 'mac' : 'burst'
-  );
+  if (isAntibodyCoated) {
+    target.antibodyCoated = Math.max(target.antibodyCoated, 3.5);
+    target.clumped = Math.max(target.clumped, 2.4);
+  }
   addComplementEffect(game, target);
 }
 
 function applyAntibodyCoating(game, target) {
   if (!target || target.dead) return;
   const clusterId = target.antibodyCluster ?? target.id;
-  const partners = game.bacteria
-    .filter(
-      (bacterium) =>
-        bacterium.id !== target.id &&
-        !bacterium.dead &&
-        distance(target, bacterium) < 96 &&
-        bacterium.antibodyCoated <= 0
-    )
-    .sort((a, b) => distance(target, a) - distance(target, b))
-    .slice(0, 1);
+  const partners =
+    Math.random() < 0.3
+      ? game.bacteria
+          .filter(
+            (bacterium) =>
+              bacterium.id !== target.id &&
+              !bacterium.dead &&
+              distance(target, bacterium) < 82 &&
+              bacterium.antibodyCoated <= 0
+          )
+          .sort((a, b) => distance(target, a) - distance(target, b))
+          .slice(0, 1)
+      : [];
 
   for (const [index, bacterium] of [target, ...partners].entries()) {
     const newlyCoated = bacterium.antibodyCoated <= 0;
@@ -1722,10 +1761,6 @@ function applyAntibodyCoating(game, target) {
     bacterium.marked = Math.max(bacterium.marked, 7.5);
     bacterium.markedBy = null;
     bacterium.antibodyCluster = clusterId;
-    bacterium.complementFuse = Math.min(
-      bacterium.complementFuse ?? Number.POSITIVE_INFINITY,
-      randomBetween(2.8, 4.6)
-    );
     if (newlyCoated) game.germsCoated += 1;
   }
   addParticles(game, target.x, target.y, '#fff1a8', 6, 55);
@@ -1759,7 +1794,8 @@ function updateAI(game, cell, dt) {
   }
   if (d < desired + 28 && cell.actionCd <= 0) {
     firePrimary(game, cell);
-    const aiDelay = cell.role === 'macrophage' ? 2.8 : cell.role === 'neutrophil' ? 2 : 2.1;
+    const baseDelay = cell.role === 'macrophage' ? 2.8 : cell.role === 'neutrophil' ? 2 : 2.1;
+    const aiDelay = baseDelay * (game.phase === 'adaptive' ? 1.35 : 1);
     cell.actionCd = Math.max(cell.actionCd, aiDelay);
   }
   if (cell.specialCd <= 0 && game.elapsed > 16) {
@@ -1906,6 +1942,7 @@ function advanceEducationStage(game) {
       controlY: Math.max(96, game.breach.y - game.height * 0.18),
       progress: 0,
       phase: 0,
+      travelSpeed: 68,
     };
     ensureEducationBacteria(game, 12);
   } else if (nextStage === 4) {
@@ -2026,12 +2063,15 @@ function updateEducation(game, dt) {
     const courier = education.courier;
     if (!courier) return;
     courier.phase += dt * 4;
-    const nearestThreat = nearestBacterium(game, courier, 118);
-    courier.progress = clamp(courier.progress + dt * (nearestThreat ? 0.018 : 0.145), 0, 1);
-    const eased = 1 - (1 - courier.progress) ** 2;
-    const pathPoint = lymphaticPathPoint(courier, eased);
-    courier.x = pathPoint.x;
-    courier.y = pathPoint.y;
+    const nearbyThreat = nearestBacterium(game, courier, 118);
+    const targetSpeed = nearbyThreat ? 58 : 84;
+    courier.travelSpeed += (targetSpeed - courier.travelSpeed) * Math.min(1, dt * 1.6);
+    courier.progress = advanceCourierAtSteadySpeed(
+      courier,
+      courier.progress,
+      dt,
+      courier.travelSpeed
+    );
     education.progress = courier.progress;
     if (courier.progress >= 1) advanceEducationStage(game);
     else ensureEducationBacteria(game, 7);
@@ -2081,7 +2121,7 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
   game.nextComplement -= dt;
   if (game.nextComplement <= 0) {
     activateComplement(game);
-    game.nextComplement = game.phase === 'adaptive' ? 1.25 : 2.2;
+    game.nextComplement = game.phase === 'adaptive' ? 2.4 : 2.2;
   }
 
   game.nextIngress -= dt;
@@ -2124,7 +2164,7 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
       const targets = game.bacteria
         .filter((bacterium) => !bacterium.dead)
         .sort(() => Math.random() - 0.5)
-        .slice(0, 2);
+        .slice(0, 1);
       for (const [index, target] of targets.entries()) {
         const plasmaCells =
           game.adaptive?.plasmaCells ??
@@ -2149,7 +2189,7 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
         });
         game.antibodyHits += 1;
       }
-      game.nextAntibody = 0.2;
+      game.nextAntibody = 0.9;
     }
   }
 
@@ -2219,24 +2259,10 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
     bacterium.antibodyPulse = Math.max(0, bacterium.antibodyPulse - dt);
     if (bacterium.antibodyCoated === 0) {
       bacterium.antibodyCluster = null;
-      bacterium.complementFuse = null;
     }
     bacterium.dividing = Math.max(0, bacterium.dividing - dt);
     bacterium.wiggle += dt * 7;
     if (bacterium.dead) continue;
-
-    if (
-      game.phase === 'adaptive' &&
-      bacterium.antibodyCoated > 0 &&
-      bacterium.complementFuse != null
-    ) {
-      bacterium.complementFuse -= dt;
-      if (bacterium.complementFuse <= 0) {
-        bacterium.complementFuse = null;
-        ruptureWithComplement(game, bacterium);
-        continue;
-      }
-    }
 
     if (bacterium.antibodyCoated > 0 && bacterium.latchedTo) {
       releaseHostCell(game, bacterium, true);
@@ -3918,10 +3944,11 @@ function drawDendriticCell(ctx, response, game) {
 function drawAdaptiveActors(ctx, game) {
   const response = game.adaptive;
   if (!response || game.experience !== 'defense') return;
+  const playableCourier = playerDendritic(game);
   const nodeActive = ['matching', 'cloning', 'antibodies'].includes(response.stage);
   drawLymphNode(ctx, response.node.x, response.node.y, nodeActive);
 
-  if (['sampling', 'delivery'].includes(response.stage)) {
+  if (!playableCourier && ['sampling', 'delivery'].includes(response.stage)) {
     if (response.stage === 'delivery') {
       ctx.save();
       ctx.strokeStyle = 'rgba(217, 255, 247, 0.46)';
@@ -4355,8 +4382,7 @@ export function ImmunePage() {
             response.courier.wanderX = clamp(response.courier.wanderX * scaleX, 40, width - 40);
             response.courier.wanderY = clamp(response.courier.wanderY * scaleY, 96, height - 40);
           } else if (response.stage === 'delivery') {
-            const eased = 1 - (1 - response.progress) ** 2;
-            const pathPoint = lymphaticPathPoint(response.courier, eased);
+            const pathPoint = lymphaticPathPoint(response.courier, response.progress);
             response.courier.x = pathPoint.x;
             response.courier.y = pathPoint.y;
           } else {
@@ -4378,8 +4404,9 @@ export function ImmunePage() {
           courier.targetY = 124;
           courier.controlX = width * 0.7;
           courier.controlY = Math.max(96, game.breach.y - height * 0.18);
-          courier.x = clamp(courier.x * scaleX, 24, width - 24);
-          courier.y = clamp(courier.y * scaleY, 78, height - 24);
+          const pathPoint = lymphaticPathPoint(courier, courier.progress);
+          courier.x = pathPoint.x;
+          courier.y = pathPoint.y;
         }
         if (game.education?.plasmaCell) {
           const plasmaCell = game.education.plasmaCell;
@@ -5166,7 +5193,7 @@ export function ImmunePage() {
               : snapshot.mode === 'won'
                 ? snapshot.earlyClear
                   ? 'Innate victory!'
-                  : 'The big guns finished it.'
+                  : 'The cell squad finished the cleanup.'
                 : 'The bacteria broke through.'}
           </h1>
           <p>
@@ -5175,7 +5202,7 @@ export function ImmunePage() {
               : snapshot.mode === 'won'
                 ? snapshot.earlyClear
                   ? 'Your squad eliminated every bacterium before the adaptive response was needed.'
-                  : 'Antibodies pinned the survivors while the cell squad cleared the wound.'
+                  : 'Antibodies pinned the survivors. Macrophages and neutrophils cleared them.'
                 : 'Try mixing cell roles and use special actions when bacteria divide.'}
           </p>
           {snapshot.experience === 'education' && snapshot.mode === 'won' && (
@@ -5210,7 +5237,7 @@ export function ImmunePage() {
             ) : (
               <>
                 <span>
-                  <strong>{snapshot.destroyed}</strong> destroyed
+                  <strong>{snapshot.destroyed}</strong> germs cleared
                 </span>
                 <span>
                   <strong>{snapshot.integrity}%</strong> tissue left
