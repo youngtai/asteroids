@@ -249,7 +249,7 @@ function adaptiveStatus(game) {
   if (game.phase === 'adaptive') {
     return {
       title: 'Plasma-cell factories are here!',
-      detail: 'Antibodies pin germs; defender cells must clear them',
+      detail: 'Antibodies drift and stick on contact; defender cells clear them',
     };
   }
   const response = game.adaptive;
@@ -769,6 +769,7 @@ function makeGame(width, height, config) {
     responsePulse: 0,
     adaptive: null,
     antibodyHits: 0,
+    antibodyBursts: 0,
     germsCoated: 0,
     totalDestroyed: 0,
     hostCellsSaved: 0,
@@ -2161,35 +2162,36 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
   } else {
     game.nextAntibody -= dt;
     if (game.nextAntibody <= 0) {
-      const targets = game.bacteria
-        .filter((bacterium) => !bacterium.dead)
-        .sort(() => Math.random() - 0.5)
-        .slice(0, 1);
-      for (const [index, target] of targets.entries()) {
-        const plasmaCells =
-          game.adaptive?.plasmaCells ??
-          (game.education?.plasmaCell ? [game.education.plasmaCell] : []);
-        const activePlasmaCells = plasmaCells.filter((plasmaCell) => plasmaCell.active !== false);
-        const factory = plasmaCells[(game.antibodyHits + index) % Math.max(1, plasmaCells.length)];
-        const mobileFactory =
-          activePlasmaCells[(game.antibodyHits + index) % Math.max(1, activePlasmaCells.length)] ??
-          factory;
-        game.effects.push({
-          type: 'antibody',
-          x: target.x,
-          y: target.y,
-          targetId: target.id,
-          owner: target,
-          applied: false,
-          fromX: mobileFactory?.x ?? target.x + randomBetween(-100, 100),
-          fromY: mobileFactory?.y ?? -30,
-          color: '#fff1a8',
-          life: 0.75,
-          maxLife: 0.75,
-        });
-        game.antibodyHits += 1;
+      const plasmaCells =
+        game.adaptive?.plasmaCells ??
+        (game.education?.plasmaCell ? [game.education.plasmaCell] : []);
+      const activePlasmaCells = plasmaCells.filter((plasmaCell) => plasmaCell.active !== false);
+      const factory =
+        activePlasmaCells[game.antibodyBursts % Math.max(1, activePlasmaCells.length)];
+      const freeAntibodies = game.effects.filter((effect) => effect.type === 'antibody').length;
+      const particleLimit = game.reducedMotion ? 34 : 96;
+      if (factory && freeAntibodies < particleLimit) {
+        const burstSize = game.reducedMotion ? 1 : 3;
+        const baseAngle = Math.random() * TAU;
+        for (let index = 0; index < burstSize; index += 1) {
+          const angle = baseAngle + (index / burstSize) * TAU + randomBetween(-0.24, 0.24);
+          const speed = randomBetween(62, 92);
+          const life = game.reducedMotion ? 4.2 : 6.5;
+          game.effects.push({
+            type: 'antibody',
+            x: factory.x + Math.cos(angle) * 30 * game.cellScale,
+            y: factory.y + Math.sin(angle) * 30 * game.cellScale,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            phase: Math.random() * TAU,
+            color: '#fff1a8',
+            life,
+            maxLife: life,
+          });
+        }
+        game.antibodyBursts += 1;
       }
-      game.nextAntibody = 0.9;
+      game.nextAntibody = game.reducedMotion ? 0.52 : 0.34;
     }
   }
 
@@ -2356,14 +2358,45 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
   game.projectiles = game.projectiles.filter((projectile) => projectile.life > 0);
 
   for (const effect of game.effects) {
-    effect.life -= dt;
-    if (effect.type === 'antibody' && !effect.applied && effect.life <= effect.maxLife * 0.18) {
-      const target = game.bacteria.find(
-        (bacterium) => bacterium.id === effect.targetId && !bacterium.dead
-      );
-      if (target) applyAntibodyCoating(game, target);
-      effect.applied = true;
+    if (effect.type === 'antibody') {
+      const flowAngle =
+        Math.sin(effect.y * 0.009 + game.elapsed * 0.32) * 0.72 +
+        Math.cos(effect.x * 0.006 - game.elapsed * 0.18) * 0.34;
+      const flowX = Math.cos(flowAngle) * 24;
+      const flowY = Math.sin(flowAngle) * 18;
+      const drift = game.reducedMotion ? 0.32 : 0.2;
+      effect.vx += (flowX - effect.vx) * Math.min(1, dt * drift);
+      effect.vy += (flowY - effect.vy) * Math.min(1, dt * drift);
+      if (!game.reducedMotion) {
+        effect.vx += Math.cos(effect.phase + game.elapsed * 1.7) * dt * 5;
+        effect.vy += Math.sin(effect.phase * 1.3 + game.elapsed * 1.4) * dt * 5;
+      }
+      effect.x += effect.vx * dt;
+      effect.y += effect.vy * dt;
+      effect.phase += dt * 2.2;
+
+      const collisionRadius = 18 + 14 * game.bacteriaScale;
+      const target = game.bacteria
+        .filter((bacterium) => !bacterium.dead && distance(effect, bacterium) < collisionRadius)
+        .sort((a, b) => distance(effect, a) - distance(effect, b))[0];
+      if (target) {
+        if (target.antibodyCoated <= 0) applyAntibodyCoating(game, target);
+        else {
+          target.antibodyCoated = Math.max(target.antibodyCoated, 4.5);
+          target.antibodyPulse = Math.max(target.antibodyPulse, 0.32);
+        }
+        game.antibodyHits += 1;
+        effect.life = 0;
+      } else if (
+        effect.x < -24 ||
+        effect.x > game.width + 24 ||
+        effect.y < 54 ||
+        effect.y > game.height + 24
+      ) {
+        effect.life = Math.min(effect.life, 0.18);
+      }
     }
+    effect.life -= dt;
     if (effect.type === 'net') {
       const progress = 1 - effect.life / effect.maxLife;
       const radius = effect.radius * Math.min(1, progress * 3.5);
@@ -3641,16 +3674,24 @@ function drawEffects(ctx, game) {
         ctx.stroke();
       }
     } else if (effect.type === 'antibody') {
-      const targetX = effect.owner?.x ?? effect.x;
-      const targetY = effect.owner?.y ?? effect.y;
-      const travel = game.reducedMotion ? 1 : 1 - (1 - progress) ** 3;
-      const x = effect.fromX + (targetX - effect.fromX) * travel;
-      const y = effect.fromY + (targetY - effect.fromY) * travel;
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.rotate(Math.atan2(targetY - effect.fromY, targetX - effect.fromX) + Math.PI / 2);
-      drawAntibody(ctx, 0, 0, 1.1 * bacteriaScale);
-      ctx.restore();
+      const speed = Math.max(1, Math.hypot(effect.vx, effect.vy));
+      const ux = effect.vx / speed;
+      const uy = effect.vy / speed;
+      if (!game.reducedMotion) {
+        ctx.strokeStyle = 'rgba(255, 241, 168, 0.26)';
+        ctx.lineWidth = Math.max(1, 1.5 * bacteriaScale);
+        ctx.beginPath();
+        ctx.moveTo(effect.x - ux * 15 * bacteriaScale, effect.y - uy * 15 * bacteriaScale);
+        ctx.lineTo(effect.x, effect.y);
+        ctx.stroke();
+      }
+      ctx.translate(effect.x, effect.y);
+      ctx.rotate(
+        Math.atan2(effect.vy, effect.vx) +
+          Math.PI / 2 +
+          (game.reducedMotion ? 0 : Math.sin(effect.phase) * 0.14)
+      );
+      drawAntibody(ctx, 0, 0, 0.78 * bacteriaScale);
     } else if (effect.type === 'complement') {
       const x = effect.fromX + (effect.x - effect.fromX) * progress;
       const y = effect.fromY + (effect.y - effect.fromY) * progress;
