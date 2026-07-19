@@ -44,6 +44,15 @@ const ROLES = {
     speed: 230,
     specialCooldown: 8,
   },
+  dendritic: {
+    name: 'Dendritic cell',
+    short: 'Sample',
+    special: 'Antigen call',
+    description: 'Gather germ pieces, carry their clues, and present them at the lymph node.',
+    color: '#62e2c7',
+    speed: 218,
+    specialCooldown: 10,
+  },
 };
 
 const ROLE_KEYS = Object.keys(ROLES);
@@ -247,9 +256,14 @@ function adaptiveStatus(game) {
   }
   if (response.stage === 'delivery') {
     game.antigenFragments.length = 0;
+    const hasDendriticPlayer = game.defenders.some(
+      (cell) => cell.isPlayer && cell.role === 'dendritic'
+    );
     return {
-      title: 'Guard the dendritic cell',
-      detail: 'Clear germs away from its path',
+      title: hasDendriticPlayer ? 'Carry the clue to the lymph node' : 'Guard the dendritic cell',
+      detail: hasDendriticPlayer
+        ? 'Follow the glowing guide and present the sample'
+        : 'Clear germs away from its path',
     };
   }
   if (response.stage === 'matching') {
@@ -738,7 +752,7 @@ function makeGame(width, height, config) {
     effects: [],
     particles: [],
     nextId: 1,
-    nextDivision: 5.4,
+    nextDivision: 4.6,
     nextIngress: 4.2,
     nextReinforcement: 8.5,
     reinforcementWave: 0,
@@ -934,7 +948,7 @@ function accelerateAdaptiveResponse(game, amount) {
   return true;
 }
 
-function addAntigenClue(game, fromX, fromY) {
+function addAntigenClue(game, fromX, fromY, collector = null) {
   const response = game.adaptive;
   if (
     game.experience !== 'defense' ||
@@ -948,13 +962,17 @@ function addAntigenClue(game, fromX, fromY) {
   response.samples += 1;
   response.progress = response.samples / response.samplesNeeded;
   game.responsePulse = 0.5;
+  const clueCollector = collector ?? response.courier;
+  if (collector?.isPlayer) {
+    collector.carriedSamples = Math.min(4, (collector.carriedSamples ?? 0) + 1);
+  }
   game.effects.push({
     type: 'antigen-clue',
-    x: response.courier.x,
-    y: response.courier.y,
+    x: clueCollector.x,
+    y: clueCollector.y,
     fromX,
     fromY,
-    owner: response.courier,
+    owner: clueCollector,
     color: '#ff9bb6',
     life: game.reducedMotion ? 0.3 : 0.78,
     maxLife: game.reducedMotion ? 0.3 : 0.78,
@@ -1014,6 +1032,75 @@ function firePrimary(game, defender) {
   }
   if (defender.role === 'macrophage' && defender.exhausted > 0) return;
   defender.actionPulse = 0.34;
+
+  if (defender.role === 'dendritic') {
+    const response = game.adaptive;
+    defender.actionCd = 0.72;
+    if (response?.stage === 'sampling') {
+      const fragment = game.antigenFragments
+        .filter((candidate) => !candidate.collected && distance(defender, candidate) < 112)
+        .sort((a, b) => distance(defender, a) - distance(defender, b))[0];
+      if (!fragment) return;
+      fragment.collected = true;
+      defender.facing = Math.atan2(fragment.y - defender.y, fragment.x - defender.x);
+      addAntigenClue(game, fragment.x, fragment.y, defender);
+      playGameSound(game, 'collect');
+      game.effects.push({
+        type: 'sample-touch',
+        x: fragment.x,
+        y: fragment.y,
+        fromX: defender.x,
+        fromY: defender.y,
+        color: ROLES.dendritic.color,
+        life: game.reducedMotion ? 0.24 : 0.55,
+        maxLife: game.reducedMotion ? 0.24 : 0.55,
+      });
+      return;
+    }
+
+    if (response && ['delivery', 'matching', 'cloning'].includes(response.stage)) {
+      const atNode = distance(defender, response.node) < 138;
+      const amount = atNode ? 0.16 : 0.045;
+      if (response.stage === 'delivery') {
+        response.progress = clamp(response.progress + amount, 0, 1);
+        if (response.progress >= 1) advanceAdaptiveResponseStage(game);
+      } else {
+        accelerateAdaptiveResponse(game, atNode ? 0.12 : 0.045);
+      }
+      defender.facing = Math.atan2(response.node.y - defender.y, response.node.x - defender.x);
+      playGameSound(game, atNode ? 'adaptive' : 'signal');
+      game.effects.push({
+        type: 'signal',
+        x: response.node.x,
+        y: response.node.y,
+        fromX: defender.x,
+        fromY: defender.y,
+        color: ROLES.dendritic.color,
+        life: 0.52,
+        maxLife: 0.52,
+      });
+      return;
+    }
+
+    const target = nearestBacterium(game, defender, 250);
+    if (target) {
+      target.marked = Math.max(target.marked, 4.5);
+      target.markedBy = defender.id;
+      defender.facing = Math.atan2(target.y - defender.y, target.x - defender.x);
+      playGameSound(game, 'signal');
+      game.effects.push({
+        type: 'signal',
+        x: target.x,
+        y: target.y,
+        fromX: defender.x,
+        fromY: defender.y,
+        color: ROLES.dendritic.color,
+        life: 0.42,
+        maxLife: 0.42,
+      });
+    }
+    return;
+  }
 
   if (defender.role === 'macrophage') {
     const target = nearestBacterium(game, defender, defender.rage > 0 ? 112 : 92);
@@ -1175,6 +1262,68 @@ function fireSpecial(game, defender) {
     recordEducationAction(game, defender, 'special');
   }
   defender.specialPulse = 0.8;
+
+  if (defender.role === 'dendritic') {
+    const response = game.adaptive;
+    defender.specialCd = ROLES.dendritic.specialCooldown;
+    playGameSound(game, 'rally');
+    game.effects.push({
+      type: 'rally',
+      x: defender.x,
+      y: defender.y,
+      radius: 250,
+      color: ROLES.dendritic.color,
+      life: game.reducedMotion ? 0.3 : 0.9,
+      maxLife: game.reducedMotion ? 0.3 : 0.9,
+    });
+
+    if (response?.stage === 'sampling') {
+      const fragments = game.antigenFragments
+        .filter((fragment) => !fragment.collected && distance(defender, fragment) < 250)
+        .sort((a, b) => distance(defender, a) - distance(defender, b))
+        .slice(0, 3);
+      for (const fragment of fragments) {
+        fragment.collected = true;
+        addAntigenClue(game, fragment.x, fragment.y, defender);
+      }
+      if (fragments.length > 0) playGameSound(game, 'collect');
+      return;
+    }
+
+    if (response && ['delivery', 'matching', 'cloning'].includes(response.stage)) {
+      const atNode = distance(defender, response.node) < 160;
+      const boost = atNode ? 0.28 : 0.16;
+      if (response.stage === 'delivery') {
+        response.progress = clamp(response.progress + boost, 0, 1);
+        if (response.progress >= 1) advanceAdaptiveResponseStage(game);
+      } else {
+        accelerateAdaptiveResponse(game, boost);
+      }
+      game.effects.push({
+        type: 'signal',
+        x: response.node.x,
+        y: response.node.y,
+        fromX: defender.x,
+        fromY: defender.y,
+        color: ROLES.dendritic.color,
+        life: 0.7,
+        maxLife: 0.7,
+      });
+      return;
+    }
+
+    for (const bacterium of game.bacteria) {
+      if (distance(defender, bacterium) >= 250) continue;
+      bacterium.marked = Math.max(bacterium.marked, 5.5);
+      bacterium.markedBy = defender.id;
+    }
+    for (const ally of game.defenders) {
+      if (ally.id === defender.id || distance(defender, ally) >= 250) continue;
+      ally.actionCd = Math.min(ally.actionCd, 0.08);
+      ally.rallied = Math.max(ally.rallied, 1.6);
+    }
+    return;
+  }
 
   if (defender.role === 'macrophage') {
     playGameSound(game, 'rush');
@@ -1472,7 +1621,15 @@ function updateAdaptiveResponse(game, dt) {
     }
   } else if (response.stage === 'delivery') {
     const nearbyThreat = nearestBacterium(game, response.courier, 118);
-    response.progress = clamp(response.progress + dt * (nearbyThreat ? 0.035 : 0.115), 0, 1);
+    const dendriticAtNode = game.defenders.some(
+      (cell) => cell.isPlayer && cell.role === 'dendritic' && distance(cell, response.node) < 128
+    );
+    const playerDeliveryBoost = dendriticAtNode ? 0.18 : 0;
+    response.progress = clamp(
+      response.progress + dt * ((nearbyThreat ? 0.035 : 0.115) + playerDeliveryBoost),
+      0,
+      1
+    );
     const eased = 1 - (1 - response.progress) ** 2;
     const pathPoint = lymphaticPathPoint(response.courier, eased);
     response.courier.facing = Math.atan2(
@@ -1950,7 +2107,7 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
     game.nextDivision -= dt;
     if (game.nextDivision <= 0) {
       divideBacteria(game);
-      game.nextDivision = Math.max(3.1, 4.9 - game.elapsed * 0.025);
+      game.nextDivision = Math.max(2.7, 4.2 - game.elapsed * 0.025);
     }
   } else if (game.phase === 'innate') {
     game.timeLeft = ROUND_TIME;
@@ -2765,6 +2922,50 @@ function drawHelper(ctx, color) {
   ctx.fill();
 }
 
+function drawPlayableDendritic(ctx, cell, game) {
+  const pulse = game.reducedMotion ? 0 : cell.actionPulse * 3;
+  ctx.strokeStyle = '#d9fff7';
+  ctx.lineWidth = 4.5;
+  ctx.lineCap = 'round';
+  for (let index = 0; index < 8; index += 1) {
+    const angle = (index / 8) * TAU + (game.reducedMotion ? 0 : game.elapsed * 0.08);
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(angle) * 13, Math.sin(angle) * 13);
+    ctx.quadraticCurveTo(
+      Math.cos(angle + 0.16) * (25 + pulse),
+      Math.sin(angle + 0.16) * (25 + pulse),
+      Math.cos(angle) * (34 + pulse),
+      Math.sin(angle) * (34 + pulse)
+    );
+    ctx.stroke();
+  }
+  ctx.fillStyle = ROLES.dendritic.color;
+  ctx.strokeStyle = '#176d78';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(0, 0, 22, 0, TAU);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#276c78';
+  ctx.beginPath();
+  ctx.ellipse(2, 1, 11, 9, -0.35, 0, TAU);
+  ctx.fill();
+
+  const carriedClues = ['sampling', 'delivery'].includes(game.adaptive?.stage)
+    ? Math.min(4, cell.carriedSamples ?? 0)
+    : 0;
+  for (let index = 0; index < carriedClues; index += 1) {
+    const angle = (index / Math.max(1, carriedClues)) * TAU + 0.4;
+    ctx.fillStyle = '#ff9bb6';
+    ctx.strokeStyle = '#fff3d6';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(Math.cos(angle) * 18, Math.sin(angle) * 18, 3.8, 0, TAU);
+    ctx.fill();
+    ctx.stroke();
+  }
+}
+
 function drawDefender(ctx, cell, game) {
   const { cellScale, reducedMotion } = game;
   ctx.save();
@@ -2776,7 +2977,8 @@ function drawDefender(ctx, cell, game) {
   ctx.shadowBlur = cell.rage > 0 ? 18 : 8;
   if (cell.role === 'macrophage') drawMacrophage(ctx, cell, roleColor, reducedMotion);
   else if (cell.role === 'neutrophil') drawNeutrophil(ctx, cell, roleColor, reducedMotion);
-  else drawHelper(ctx, roleColor);
+  else if (cell.role === 'helper') drawHelper(ctx, roleColor);
+  else drawPlayableDendritic(ctx, cell, game);
   ctx.restore();
 
   ctx.save();
@@ -2931,6 +3133,53 @@ function drawHelperTargeting(ctx, game) {
   drawPreviewLine(germ, 27 * game.bacteriaScale);
   drawPreviewLine(macrophage, 32 * game.cellScale, true);
   ctx.restore();
+}
+
+function drawDendriticTargeting(ctx, game) {
+  if (game.mode !== 'playing') return;
+  const dendriticPlayers = game.defenders.filter(
+    (cell) => cell.isPlayer && cell.role === 'dendritic' && cell.fatigued <= 0
+  );
+  if (dendriticPlayers.length === 0) return;
+
+  for (const cell of dendriticPlayers) {
+    const response = game.adaptive;
+    let target = null;
+    if (response?.stage === 'sampling') {
+      target = game.antigenFragments
+        .filter((fragment) => !fragment.collected)
+        .sort((a, b) => distance(cell, a) - distance(cell, b))[0];
+    } else if (response && ['delivery', 'matching', 'cloning'].includes(response.stage)) {
+      target = response.node;
+    } else {
+      target = nearestBacterium(game, cell, 250);
+    }
+    if (!target) continue;
+    const dx = target.x - cell.x;
+    const dy = target.y - cell.y;
+    const targetDistance = Math.hypot(dx, dy) || 1;
+    const ux = dx / targetDistance;
+    const uy = dy / targetDistance;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(217, 255, 247, 0.68)';
+    ctx.lineWidth = Math.max(1.5, 2.2 * game.cellScale);
+    ctx.setLineDash([5, 7]);
+    ctx.beginPath();
+    ctx.moveTo(cell.x + ux * 35 * game.cellScale, cell.y + uy * 35 * game.cellScale);
+    ctx.lineTo(target.x - ux * 18, target.y - uy * 18);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(
+      target.x,
+      target.y,
+      18 + (game.reducedMotion ? 0 : Math.sin(game.elapsed * 6) * 2),
+      0,
+      TAU
+    );
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 function drawAntibody(ctx, x, y, scale = 1) {
@@ -3813,6 +4062,7 @@ function drawGame(ctx, game) {
   drawBackground(ctx, game);
   drawAntigenFragments(ctx, game);
   drawHelperTargeting(ctx, game);
+  drawDendriticTargeting(ctx, game);
   for (const hostCell of game.hostCells) drawHostCell(ctx, hostCell, game);
   drawAntibodyClusters(ctx, game);
   for (const bacterium of game.bacteria) drawBacterium(ctx, bacterium, game);
@@ -4676,18 +4926,23 @@ export function ImmunePage() {
 
       {snapshot.mode === 'playing' &&
         snapshot.experience === 'defense' &&
-        snapshot.players.some((player) => player.role === 'helper') && (
-          <aside className="immune-helper-coach" aria-label="Helper T cell controls">
+        snapshot.players.some((player) => ['helper', 'dendritic'].includes(player.role)) && (
+          <aside className="immune-helper-coach" aria-label="Support cell controls">
             {snapshot.players
-              .filter((player) => player.role === 'helper')
+              .filter((player) => ['helper', 'dendritic'].includes(player.role))
               .map((player) => (
                 <div key={`helper-coach-${player.playerIndex}`}>
-                  <strong>P{player.playerIndex + 1} Helper</strong>
+                  <strong>
+                    P{player.playerIndex + 1}{' '}
+                    {player.role === 'helper' ? 'Helper' : 'Dendritic scout'}
+                  </strong>
                   <span>
-                    <b>{player.playerIndex === 0 ? 'F / A' : 'Enter / A'}</b> Mark + boost
+                    <b>{player.playerIndex === 0 ? 'F / A' : 'Enter / A'}</b>{' '}
+                    {player.role === 'helper' ? 'Mark + boost' : 'Sample germ bits'}
                   </span>
                   <span>
-                    <b>{player.playerIndex === 0 ? 'G / X' : '/ / X'}</b> Team boost
+                    <b>{player.playerIndex === 0 ? 'G / X' : '/ / X'}</b>{' '}
+                    {player.role === 'helper' ? 'Team boost' : 'Antigen call'}
                   </span>
                 </div>
               ))}
@@ -4728,7 +4983,13 @@ export function ImmunePage() {
               type="button"
             >
               <strong>{ROLES[snapshot.players[0].role].short}</strong>
-              <small>{snapshot.players[0].role === 'helper' ? 'Team +35%' : 'Action'}</small>
+              <small>
+                {snapshot.players[0].role === 'helper'
+                  ? 'Team +35%'
+                  : snapshot.players[0].role === 'dendritic'
+                    ? 'Collect clue'
+                    : 'Action'}
+              </small>
             </button>
             <button
               aria-label={`${ROLES[snapshot.players[0].role].special} special`}
@@ -4743,7 +5004,11 @@ export function ImmunePage() {
             >
               <strong>{ROLES[snapshot.players[0].role].special}</strong>
               <small>
-                {snapshot.players[0].role === 'helper' ? 'Build plasma cells' : 'Special'}
+                {snapshot.players[0].role === 'helper'
+                  ? 'Build plasma cells'
+                  : snapshot.players[0].role === 'dendritic'
+                    ? 'Find + present'
+                    : 'Special'}
               </small>
             </button>
           </div>
