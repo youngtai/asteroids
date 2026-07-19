@@ -245,6 +245,127 @@ function playerDendritic(game) {
   return game.defenders.find((cell) => cell.isPlayer && cell.role === 'dendritic') ?? null;
 }
 
+function roleHandoffTarget(game, player, direction) {
+  const startIndex = ROLE_KEYS.indexOf(player.role);
+  for (let step = 1; step < ROLE_KEYS.length; step += 1) {
+    const role = ROLE_KEYS[(startIndex + direction * step + ROLE_KEYS.length) % ROLE_KEYS.length];
+    if (role === 'dendritic') {
+      const anotherDendriticPlayer = game.defenders.some(
+        (cell) => cell !== player && cell.isPlayer && cell.role === 'dendritic'
+      );
+      if (!anotherDendriticPlayer && game.adaptive) return { role, cell: null };
+      continue;
+    }
+    const candidates = game.defenders
+      .filter((cell) => !cell.isPlayer && cell.role === role)
+      .sort((a, b) => {
+        const aUnavailable = a.fatigued > 0 || a.exhausted > 0 ? 1 : 0;
+        const bUnavailable = b.fatigued > 0 || b.exhausted > 0 ? 1 : 0;
+        return aUnavailable - bUnavailable || distance(player, a) - distance(player, b);
+      });
+    if (candidates[0]) return { role, cell: candidates[0] };
+  }
+  return null;
+}
+
+function addRoleHandoffEffect(game, cell, color) {
+  game.effects.push({
+    type: 'rally',
+    x: cell.x,
+    y: cell.y,
+    radius: 64,
+    color,
+    life: game.reducedMotion ? 0.24 : 0.72,
+    maxLife: game.reducedMotion ? 0.24 : 0.72,
+  });
+  addParticles(game, cell.x, cell.y, color, game.reducedMotion ? 4 : 11, 72);
+}
+
+function makeCellPlayerControlled(cell, playerIndex, kills) {
+  cell.isPlayer = true;
+  cell.playerIndex = playerIndex;
+  cell.label = `P${playerIndex + 1}`;
+  cell.kills = kills;
+  cell.swapCd = 0.5;
+}
+
+function resumeAiDendriticAt(game, player) {
+  const response = game.adaptive;
+  if (!response) return;
+  const courier = response.courier;
+  courier.x = player.x;
+  courier.y = player.y;
+  courier.startX = player.x;
+  courier.startY = player.y;
+  courier.targetX = response.node.x;
+  courier.targetY = response.node.y;
+  courier.controlX = clamp(
+    (player.x + response.node.x) / 2 + game.width * 0.08,
+    80,
+    game.width - 80
+  );
+  courier.controlY = clamp(
+    Math.min(player.y, response.node.y) - game.height * 0.08,
+    96,
+    game.height - 80
+  );
+  courier.wanderX = player.x;
+  courier.wanderY = player.y;
+  courier.wanderTimer = 0;
+  courier.travelSpeed = 68;
+  if (response.stage === 'delivery') response.progress = 0;
+}
+
+function switchPlayerRole(game, player, direction) {
+  if (game.experience !== 'defense' || game.mode !== 'playing' || player.swapCd > 0) return null;
+  const target = roleHandoffTarget(game, player, direction);
+  if (!target) return null;
+
+  const playerIndex = player.playerIndex;
+  const playerKills = player.kills;
+  const oldRole = player.role;
+  const oldPosition = { x: player.x, y: player.y };
+  let nextPlayer = target.cell;
+
+  if (target.role === 'dendritic') {
+    const oldBody = {
+      ...player,
+      id: game.nextId++,
+      isPlayer: false,
+      playerIndex: null,
+      label: `AI ${ROLES[oldRole].name}`,
+      kills: 0,
+      swapCd: 0,
+    };
+    game.defenders.push(oldBody);
+    const courier = game.adaptive.courier;
+    player.role = 'dendritic';
+    player.x = courier.x;
+    player.y = courier.y;
+    player.facing = courier.facing;
+    makeCellPlayerControlled(player, playerIndex, playerKills);
+    nextPlayer = player;
+  } else {
+    if (oldRole === 'dendritic') {
+      resumeAiDendriticAt(game, player);
+      game.defenders.splice(game.defenders.indexOf(player), 1);
+    } else {
+      player.isPlayer = false;
+      player.playerIndex = null;
+      player.label = `AI ${oldRole === 'helper' ? 'Helper T cell' : ROLES[oldRole].name}`;
+      player.kills = 0;
+      player.swapCd = 0;
+    }
+    makeCellPlayerControlled(nextPlayer, playerIndex, playerKills);
+  }
+
+  addRoleHandoffEffect(game, oldPosition, ROLES[oldRole].color);
+  addRoleHandoffEffect(game, nextPlayer, ROLES[nextPlayer.role].color);
+  game.responsePulse = Math.max(game.responsePulse, 0.45);
+  playGameSound(game, 'recharge');
+  return nextPlayer;
+}
+
 function adaptiveStatus(game) {
   if (game.phase === 'adaptive') {
     return {
@@ -565,6 +686,7 @@ function makeDefender(game, role, index, isPlayer) {
     exhaustion: 0,
     actionPulse: 0,
     specialPulse: 0,
+    swapCd: 0,
     kills: 0,
     label: isPlayer ? `P${index + 1}` : `AI ${ROLES[role].name}`,
   };
@@ -1813,7 +1935,18 @@ function updatePlayers(game, dt, keys, gamepads, buttonEdges, touchInput) {
     { left: 'ArrowLeft', right: 'ArrowRight', up: 'ArrowUp', down: 'ArrowDown' },
   ];
 
-  const players = game.defenders.filter((cell) => cell.isPlayer);
+  const playersBeforeHandoff = game.defenders
+    .filter((cell) => cell.isPlayer)
+    .sort((a, b) => a.playerIndex - b.playerIndex);
+  playersBeforeHandoff.forEach((player) => {
+    const edges = buttonEdges[player.playerIndex];
+    if (edges?.rolePrevious) switchPlayerRole(game, player, -1);
+    else if (edges?.roleNext) switchPlayerRole(game, player, 1);
+  });
+
+  const players = game.defenders
+    .filter((cell) => cell.isPlayer)
+    .sort((a, b) => a.playerIndex - b.playerIndex);
   players.forEach((player, index) => {
     const controls = controlSets[index];
     const pad = gamepads[index];
@@ -2198,6 +2331,7 @@ function updateGame(game, dt, keys, gamepads, buttonEdges, touchInput) {
   for (const cell of game.defenders) {
     cell.actionCd = Math.max(0, cell.actionCd - dt);
     cell.specialCd = Math.max(0, cell.specialCd - dt);
+    cell.swapCd = Math.max(0, (cell.swapCd ?? 0) - dt);
     const wasFatigued = cell.fatigued > 0;
     cell.fatigued = Math.max(0, cell.fatigued - dt);
     if (wasFatigued && cell.fatigued === 0 && cell.netosisReplacement) {
@@ -4162,6 +4296,7 @@ function educationProgressLabel(game) {
 function snapshotFromGame(game) {
   const players = game.defenders
     .filter((cell) => cell.isPlayer)
+    .sort((a, b) => a.playerIndex - b.playerIndex)
     .map((cell) => ({
       role: cell.role,
       playerIndex: cell.playerIndex,
@@ -4490,6 +4625,12 @@ export function ImmunePage() {
             edges[index].special ||=
               (pressed.has(2) && !pressedRef.current[index].has(2)) ||
               (pressed.has(1) && !pressedRef.current[index].has(1));
+            edges[index].rolePrevious ||=
+              (pressed.has(4) && !pressedRef.current[index].has(4)) ||
+              (pressed.has(6) && !pressedRef.current[index].has(6));
+            edges[index].roleNext ||=
+              (pressed.has(5) && !pressedRef.current[index].has(5)) ||
+              (pressed.has(7) && !pressedRef.current[index].has(7));
             edges[index].pause ||= pressed.has(9) && !pressedRef.current[index].has(9);
           }
           pressedRef.current[index] = pressed;
@@ -4661,10 +4802,14 @@ export function ImmunePage() {
       }
       if (event.code === 'KeyF') keyboardEdgesRef.current[0].primary = true;
       if (event.code === 'KeyG') keyboardEdgesRef.current[0].special = true;
+      if (event.code === 'KeyQ') keyboardEdgesRef.current[0].rolePrevious = true;
+      if (event.code === 'KeyE') keyboardEdgesRef.current[0].roleNext = true;
       if (event.code === 'Enter') keyboardEdgesRef.current[1].primary = true;
       if (event.code === 'ShiftRight' || event.code === 'Slash') {
         keyboardEdgesRef.current[1].special = true;
       }
+      if (event.code === 'BracketLeft') keyboardEdgesRef.current[1].rolePrevious = true;
+      if (event.code === 'BracketRight') keyboardEdgesRef.current[1].roleNext = true;
       keysRef.current.add(event.code);
     };
 
@@ -4732,13 +4877,32 @@ export function ImmunePage() {
     if (touchStickRef.current) touchStickRef.current.style.transform = 'translate(0px, 0px)';
   }, []);
 
-  const pressTouchAction = useCallback((action, event) => {
-    event.preventDefault();
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    event.currentTarget.dataset.pressed = 'true';
+  const queueTouchAction = useCallback((action) => {
     keyboardEdgesRef.current[0][action] = true;
     navigator.vibrate?.(action === 'special' ? 24 : 10);
   }, []);
+
+  const pressTouchAction = useCallback(
+    (action, event) => {
+      event.preventDefault();
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      event.currentTarget.dataset.pressed = 'true';
+      queueTouchAction(action);
+    },
+    [queueTouchAction]
+  );
+
+  const pressTouchRoleButton = useCallback((event) => {
+    event.currentTarget.dataset.pressed = 'true';
+  }, []);
+
+  const releaseTouchRoleButton = useCallback(
+    (action, event) => {
+      event.currentTarget.dataset.pressed = 'false';
+      queueTouchAction(action);
+    },
+    [queueTouchAction]
+  );
 
   const releaseTouchAction = useCallback((event) => {
     event.currentTarget.dataset.pressed = 'false';
@@ -5019,6 +5183,40 @@ export function ImmunePage() {
 
       {snapshot.mode === 'playing' && snapshot.players[0] && (
         <section className="immune-touch-controls" aria-label="Player 1 touch controls">
+          {snapshot.experience === 'defense' && (
+            <fieldset className="immune-touch-role-switch">
+              <legend className="sr-only">Change Player 1 cell role</legend>
+              <button
+                aria-label="Take over the previous available cell role"
+                data-pressed="false"
+                onClick={(event) => {
+                  if (event.detail === 0) queueTouchAction('rolePrevious');
+                }}
+                onContextMenu={(event) => event.preventDefault()}
+                onPointerCancel={releaseTouchAction}
+                onPointerDown={pressTouchRoleButton}
+                onPointerUp={(event) => releaseTouchRoleButton('rolePrevious', event)}
+                type="button"
+              >
+                ‹
+              </button>
+              <span>{ROLES[snapshot.players[0].role].name}</span>
+              <button
+                aria-label="Take over the next available cell role"
+                data-pressed="false"
+                onClick={(event) => {
+                  if (event.detail === 0) queueTouchAction('roleNext');
+                }}
+                onContextMenu={(event) => event.preventDefault()}
+                onPointerCancel={releaseTouchAction}
+                onPointerDown={pressTouchRoleButton}
+                onPointerUp={(event) => releaseTouchRoleButton('roleNext', event)}
+                type="button"
+              >
+                ›
+              </button>
+            </fieldset>
+          )}
           <button
             aria-label="Movement joystick"
             className="immune-touch-joystick"
@@ -5208,11 +5406,11 @@ export function ImmunePage() {
             {config.experience === 'education' ? 'Begin Immune Journey' : 'Defend the tissue'}
           </button>
           <div className="immune-controls">
-            <span>P1: WASD, F action, G special</span>
+            <span>P1: WASD, F action, G special, Q/E switch cells</span>
             {config.experience === 'defense' && config.playerCount === 2 && (
-              <span>P2: Arrows, Enter action, / special</span>
+              <span>P2: Arrows, Enter action, / special, [/] switch cells</span>
             )}
-            <span>Gamepad: Stick, A action, X or B special</span>
+            <span>Gamepad: Stick, A action, X or B special, shoulders/triggers switch cells</span>
             <span>Setup: M or D-pad up/down changes mode</span>
             <span>Touch: joystick and action buttons control P1</span>
           </div>
