@@ -10,17 +10,17 @@ const BASELINE_ARENA_AREA = 1280 * 720;
 const SNAPSHOT_INTERVAL = 100;
 const SOUND_PREFERENCE_KEY = 'immune-sound-muted';
 const ADAPTIVE_RESPONSE_STAGES = [
-  { id: 'sampling', icon: '🔎', label: 'Gather germ bits' },
-  { id: 'delivery', icon: '🛡️', label: 'Follow the lymph path' },
-  { id: 'matching', icon: '🧩', label: 'Match helper and B cells' },
-  { id: 'cloning', icon: '🫧', label: 'Grow plasma cells' },
+  { id: 'sampling', icon: '🔎', label: 'Capture antigens' },
+  { id: 'delivery', icon: '🛡️', label: 'Carry antigen to lymph node' },
+  { id: 'matching', icon: '🧩', label: 'Activate a matching B cell' },
+  { id: 'cloning', icon: '🫧', label: 'Clone B cells; form plasma cells' },
 ];
 
 const ROLES = {
   macrophage: {
     name: 'Macrophage',
     short: 'Engulf',
-    special: 'Phagocyte rush',
+    special: 'Rapid phagocytosis',
     description: 'Wrap bacteria in pseudopods and digest them through phagocytosis.',
     color: '#58d7ff',
     speed: 205,
@@ -28,27 +28,28 @@ const ROLES = {
   },
   neutrophil: {
     name: 'Neutrophil',
-    short: 'Toxin burst',
-    special: 'DNA net',
-    description: 'Spray bacteria from a distance, then cast a huge trapping net.',
+    short: 'Antimicrobial burst',
+    special: 'DNA trap (NET)',
+    description: 'Release antimicrobial chemicals, then cast a DNA trap called a NET.',
     color: '#ffca72',
     speed: 245,
     specialCooldown: 12,
   },
   helper: {
     name: 'Helper T cell',
-    short: 'Mark + boost',
-    special: 'Team boost',
-    description: 'Mark germs, recharge macrophages, and help matching B cells become plasma cells.',
+    short: 'Cytokine signal',
+    special: 'Cytokine wave',
+    description: 'Send cytokine signals that activate immune cells and matching B cells.',
     color: '#8df29a',
     speed: 230,
     specialCooldown: 8,
   },
   dendritic: {
     name: 'Dendritic cell',
-    short: 'Sample',
-    special: 'Antigen call',
-    description: 'Gather germ pieces, carry their clues, and present them at the lymph node.',
+    short: 'Capture antigen',
+    special: 'Present antigen',
+    description:
+      'Capture and process bacterial antigens, then present antigen fragments to T cells in a lymph node.',
     color: '#62e2c7',
     speed: 218,
     specialCooldown: 10,
@@ -64,11 +65,12 @@ const LEARNING_STAGES = [
     icon: '🚨',
     ctaIcon: '👣',
     progressIcons: ['👣', '👣', '👣'],
-    title: 'Germs got in!',
+    title: 'Bacteria got in!',
     cell: 'Mo the macrophage',
     objective: 'Follow the glow',
-    fact: 'Hurt cells call nearby immune cells for help.',
-    narration: "Uh-oh! Your body got an owie, and germs got in. Let's go help!",
+    fact: 'Damaged tissue releases alarm signals that start inflammation.',
+    narration:
+      "Uh-oh! Bacteria crossed the skin. Hurt cells are sending alarm signals. Let's help!",
     cta: 'Go',
   },
   {
@@ -76,31 +78,31 @@ const LEARNING_STAGES = [
     icon: '😋',
     ctaIcon: '😋',
     progressIcons: ['🦠', '🦠', '🦠', '🦠'],
-    title: 'Chomp the germs!',
+    title: 'Engulf the bacteria!',
     cell: 'Macrophage',
-    objective: 'Gobble the pink germs',
-    fact: 'Macrophages wrap around germs and gobble them up.',
-    narration: "Hi, I'm Mo! I'm a macrophage, a germ eater. Chomp, chomp!",
-    cta: 'Eat',
+    objective: 'Engulf the pink bacteria',
+    fact: 'Macrophages surround and digest bacteria through phagocytosis.',
+    narration: "Hi, I'm Mo! I wrap around bacteria and digest them. That is called phagocytosis!",
+    cta: 'Engulf',
   },
   {
     id: 'neutrophil',
     icon: '⚡',
     ctaIcon: '💦',
     progressIcons: ['💧', '💧', '💧', '🕸️'],
-    title: 'Zip sprays germs!',
+    title: 'Zip attacks bacteria!',
     cell: 'Neutrophil',
-    objective: 'Spray the germs',
+    objective: 'Release antimicrobial chemicals',
     fact: 'Neutrophils are fast, but their powerful tools can hurt healthy cells too.',
-    narration: 'This is Zip, a neutrophil. Zip is super fast! Spray the germs.',
-    cta: 'Spray',
+    narration: 'This is Zip, a fast neutrophil. Release antimicrobial chemicals at the bacteria!',
+    cta: 'Attack',
     next: {
       icon: '🕸️',
       ctaIcon: '🕸️',
-      title: 'Throw the sticky net!',
-      objective: 'Catch lots at once',
-      narration: 'Great spraying! Now throw a sticky net. It catches lots of germs at once!',
-      cta: 'Net',
+      title: 'Cast a DNA trap!',
+      objective: 'Trap many bacteria at once',
+      narration: 'Now cast a neutrophil extracellular trap, or NET. Its DNA strands trap bacteria!',
+      cta: 'Cast NET',
     },
   },
   {
@@ -108,11 +110,12 @@ const LEARNING_STAGES = [
     icon: '🔎',
     ctaIcon: '🛡️',
     progressIcons: ['🛡️', '🛡️', '🛡️', '🏠'],
-    title: 'Guard the runner!',
+    title: 'Protect the antigen carrier!',
     cell: 'Dendritic cell',
-    objective: 'Keep the runner safe',
-    fact: 'A dendritic cell carries a tiny germ clue to the lymph node.',
-    narration: 'This little runner has a piece of a germ. Keep it safe on the way to helper base!',
+    objective: 'Escort the dendritic cell',
+    fact: 'Dendritic cells capture and process bacterial antigens, then travel to a lymph node.',
+    narration:
+      'This dendritic cell captured and processed a bacterial antigen. Protect it on the way to the lymph node!',
     cta: 'Protect',
   },
   {
@@ -120,19 +123,21 @@ const LEARNING_STAGES = [
     icon: '🧩',
     ctaIcon: '✨',
     progressIcons: ['✨', '⭐'],
-    title: 'Find the glowing helper!',
+    title: 'Activate the matching helper!',
     cell: 'Helper T cell',
-    objective: 'Touch the one that glows',
-    fact: 'After a few days, one helper T cell matches the germ clue.',
-    narration: 'A few sleeps go by. We need the right helper T cell. Touch the one that glows!',
+    objective: 'Present antigen to the match',
+    fact: 'In the lymph node, a dendritic cell presents an antigen fragment to a helper T cell with a matching receptor.',
+    narration:
+      'The dendritic cell presents an antigen fragment. Activate the helper T cell whose receptor matches it!',
     cta: 'Match',
     next: {
       icon: '⭐',
       ctaIcon: '⭐',
-      title: 'Wake the sleepy eaters!',
-      objective: 'Send a big cheer',
-      narration: "That's the one! Cheer to wake up the sleepy germ eaters.",
-      cta: 'Cheer',
+      title: 'Send cytokine signals!',
+      objective: 'Activate nearby immune cells',
+      narration:
+        'That helper T cell matches! Send cytokine signals to activate nearby immune cells and B cells.',
+      cta: 'Signal',
     },
   },
   {
@@ -140,25 +145,25 @@ const LEARNING_STAGES = [
     icon: '🫧',
     ctaIcon: '😋',
     progressIcons: ['🦠', '🦠', '🦠', '🦠', '🦠'],
-    title: 'Sticky stars!',
-    cell: 'B cell + macrophage',
-    objective: 'Gobble the stuck germs',
-    fact: 'B cells make sticky antibodies that grab germs together.',
+    title: 'Antibodies bind bacteria!',
+    cell: 'Plasma cell + macrophage',
+    objective: 'Engulf antibody-coated bacteria',
+    fact: 'Activated B cells become plasma cells. Plasma cells release antibodies that bind matching antigens.',
     narration:
-      'The helper made sticky stars called antibodies. They glue germs together. Gobble them!',
-    cta: 'Eat',
+      'Plasma cells release antibodies. They bind matching antigens and coat bacteria so phagocytes can engulf them!',
+    cta: 'Engulf',
   },
   {
     id: 'memory',
     icon: '⭐',
     ctaIcon: '👀',
     progressIcons: ['⭐', '⭐', '⭐', '⭐', '⭐'],
-    title: 'The body remembers!',
+    title: 'Immune memory remains!',
     cell: 'Memory B + T cells',
-    objective: 'Watch the fast cleanup',
-    fact: 'Memory cells remember this germ and fight it faster next time.',
+    objective: 'See the faster response',
+    fact: 'Some activated B and T cells become memory cells that respond faster next time.',
     narration:
-      'Some helpers remember these germs. If they come back, the body can fight super fast!',
+      'Some activated B and T cells stay as memory cells. They can recognize this bacterium faster next time!',
     cta: 'Watch',
   },
 ];
@@ -369,16 +374,16 @@ function switchPlayerRole(game, player, direction) {
 function adaptiveStatus(game) {
   if (game.phase === 'adaptive') {
     return {
-      title: 'Plasma-cell factories are here!',
-      detail: 'Antibodies drift and stick on contact; defender cells clear them',
+      title: 'Plasma cells are releasing antibodies',
+      detail: 'Antibodies bind matching antigens and can cluster or coat bacteria for phagocytes',
     };
   }
   const response = game.adaptive;
   if (!response || response.stage === 'sampling') {
     const isPlayerScout = Boolean(playerDendritic(game));
     return {
-      title: isPlayerScout ? 'Gather germ bits' : 'Dendritic scout is sampling',
-      detail: `${response?.samples ?? 0}/${response?.samplesNeeded ?? 0} germ bits gathered`,
+      title: isPlayerScout ? 'Capture bacterial antigens' : 'Dendritic cell is capturing antigens',
+      detail: `${response?.samples ?? 0}/${response?.samplesNeeded ?? 0} antigens captured`,
     };
   }
   if (response.stage === 'delivery') {
@@ -387,21 +392,21 @@ function adaptiveStatus(game) {
       (cell) => cell.isPlayer && cell.role === 'dendritic'
     );
     return {
-      title: hasDendriticPlayer ? 'Carry the clue to the lymph node' : 'Guard the dendritic cell',
+      title: hasDendriticPlayer ? 'Carry antigen to the lymph node' : 'Protect the dendritic cell',
       detail: hasDendriticPlayer
-        ? 'Follow the glowing guide and present the sample'
-        : 'Clear germs away from its path',
+        ? 'Follow the glowing path and present the antigen to T cells'
+        : 'Clear bacteria away from its path to the lymph node',
     };
   }
   if (response.stage === 'matching') {
     return {
-      title: 'Find the matching cells',
-      detail: 'Helper T cell is activating a B cell',
+      title: 'Activate a matching B cell',
+      detail: 'The helper T cell is signaling a B cell that recognizes the same antigen',
     };
   }
   return {
-    title: 'Grow antibody factories',
-    detail: `${response.bCellCopies} B-cell ${response.bCellCopies === 1 ? 'copy' : 'copies'} becoming plasma cells`,
+    title: 'B cells are cloning and differentiating',
+    detail: `${response.bCellCopies} activated B-cell ${response.bCellCopies === 1 ? 'clone is' : 'clones are'} becoming plasma cells`,
   };
 }
 
@@ -3765,7 +3770,7 @@ function drawEffects(ctx, game) {
         ctx.font = `900 ${Math.round(clamp(12, 15 * cellScale, 16))}px Inter, system-ui, sans-serif`;
         ctx.textAlign = 'center';
         ctx.fillStyle = '#f4fff1';
-        ctx.fillText('BOOST!', targetX, targetY - 15);
+        ctx.fillText('CYTOKINES!', targetX, targetY - 15);
       }
     } else if (effect.type === 'net') {
       const radius = effect.radius * Math.min(1, progress * 3.5);
@@ -4200,7 +4205,7 @@ function drawAdaptiveActors(ctx, game) {
     ctx.textAlign = 'center';
     ctx.fillText('HELPER T', helperX, helperY + 42);
     ctx.fillText(
-      response.stage === 'matching' ? 'MATCHING B CELL' : 'B CELLS CLONING',
+      response.stage === 'matching' ? 'B CELL ACTIVATION' : 'B-CELL CLONES',
       bCellX,
       bCellY + 48
     );
@@ -4254,7 +4259,7 @@ function drawAdaptiveActors(ctx, game) {
       ctx.fillStyle = '#fff4ff';
       ctx.font = '800 10px Inter, system-ui, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('PLASMA FACTORY', plasmaCell.x, plasmaCell.y + 48 * game.cellScale);
+      ctx.fillText('PLASMA CELL', plasmaCell.x, plasmaCell.y + 48 * game.cellScale);
       ctx.restore();
     }
   }
@@ -4287,7 +4292,7 @@ function educationProgressLabel(game) {
   }
   if (education.stage === 3) return `${Math.round(education.progress * 100)}% to the lymph node`;
   if (education.stage === 4) {
-    return `${education.helperMatched ? 'Antigen matched' : 'Find the glowing match'} · ${Math.min(1, education.specialActions)}/1 rally`;
+    return `${education.helperMatched ? 'Antigen matched' : 'Find the matching receptor'} · ${Math.min(1, education.specialActions)}/1 cytokine signal`;
   }
   if (education.stage === 5) return `${game.bacteria.length} bacteria remain`;
   return `${Math.round(education.progress * 100)}% faster response`;
@@ -4364,8 +4369,8 @@ const INITIAL_SNAPSHOT = {
   hostCellsLost: 0,
   criticalTissue: 0,
   responsePulse: false,
-  responseTitle: 'Dendritic scout is sampling',
-  responseDetail: '0/0 clues collected',
+  responseTitle: 'Dendritic cell is capturing antigens',
+  responseDetail: '0/0 antigens captured',
   responseProgress: 0,
   responseStageIndex: 0,
   responseStageProgress: 0,
@@ -5166,15 +5171,15 @@ export function ImmunePage() {
                 <div key={`helper-coach-${player.playerIndex}`}>
                   <strong>
                     P{player.playerIndex + 1}{' '}
-                    {player.role === 'helper' ? 'Helper' : 'Dendritic scout'}
+                    {player.role === 'helper' ? 'Helper T cell' : 'Dendritic cell'}
                   </strong>
                   <span>
                     <b>{player.playerIndex === 0 ? 'F / A' : 'Enter / A'}</b>{' '}
-                    {player.role === 'helper' ? 'Mark + boost' : 'Sample germ bits'}
+                    {player.role === 'helper' ? 'Send cytokine signal' : 'Capture antigen'}
                   </span>
                   <span>
                     <b>{player.playerIndex === 0 ? 'G / X' : '/ / X'}</b>{' '}
-                    {player.role === 'helper' ? 'Team boost' : 'Antigen call'}
+                    {player.role === 'helper' ? 'Activate immune cells' : 'Present antigen'}
                   </span>
                 </div>
               ))}
@@ -5251,9 +5256,9 @@ export function ImmunePage() {
               <strong>{ROLES[snapshot.players[0].role].short}</strong>
               <small>
                 {snapshot.players[0].role === 'helper'
-                  ? 'Team +35%'
+                  ? 'Signal allies'
                   : snapshot.players[0].role === 'dendritic'
-                    ? 'Collect clue'
+                    ? 'Capture antigen'
                     : 'Action'}
               </small>
             </button>
@@ -5271,9 +5276,9 @@ export function ImmunePage() {
               <strong>{ROLES[snapshot.players[0].role].special}</strong>
               <small>
                 {snapshot.players[0].role === 'helper'
-                  ? 'Build plasma cells'
+                  ? 'Activate B cells'
                   : snapshot.players[0].role === 'dendritic'
-                    ? 'Find + present'
+                    ? 'Carry + present'
                     : 'Special'}
               </small>
             </button>
@@ -5311,7 +5316,7 @@ export function ImmunePage() {
           <p className="immune-setup__intro">
             {config.experience === 'education'
               ? 'Guide each part of the response and learn how your body turns a local alarm into lasting immune memory.'
-              : 'Damaged cells are crying for help. Leave germ bits for the dendritic scout, follow its lymph path, and watch B cells become roaming plasma-cell factories.'}
+              : 'Damaged tissue releases alarm signals. Help dendritic cells capture antigens and activate B cells that become antibody-releasing plasma cells.'}
           </p>
 
           <fieldset className="immune-mode-select">
@@ -5431,8 +5436,8 @@ export function ImmunePage() {
               ? 'Your immune system remembers.'
               : snapshot.mode === 'won'
                 ? snapshot.earlyClear
-                  ? 'Innate victory!'
-                  : 'The cell squad finished the cleanup.'
+                  ? 'The innate response contained the infection!'
+                  : 'The adaptive response cleared the infection.'
                 : 'The bacteria broke through.'}
           </h1>
           <p>
@@ -5441,7 +5446,7 @@ export function ImmunePage() {
               : snapshot.mode === 'won'
                 ? snapshot.earlyClear
                   ? 'Your squad eliminated every bacterium before the adaptive response was needed.'
-                  : 'Antibodies pinned the survivors. Macrophages and neutrophils cleared them.'
+                  : 'Plasma cells released antibodies that coated bacteria. Macrophages and neutrophils then cleared them.'
                 : 'Try mixing cell roles and use special actions when bacteria divide.'}
           </p>
           {snapshot.experience === 'education' && snapshot.mode === 'won' && (
@@ -5467,7 +5472,7 @@ export function ImmunePage() {
                   <strong>{snapshot.destroyed}</strong> bacteria cleared
                 </span>
                 <span>
-                  <strong>{snapshot.germsCoated}</strong> germs coated
+                  <strong>{snapshot.germsCoated}</strong> antibody-coated bacteria
                 </span>
                 <span>
                   <strong>Formed</strong> immune memory
@@ -5476,13 +5481,13 @@ export function ImmunePage() {
             ) : (
               <>
                 <span>
-                  <strong>{snapshot.destroyed}</strong> germs cleared
+                  <strong>{snapshot.destroyed}</strong> bacteria cleared
                 </span>
                 <span>
                   <strong>{snapshot.integrity}%</strong> tissue left
                 </span>
                 <span>
-                  <strong>{snapshot.germsCoated}</strong> germs coated
+                  <strong>{snapshot.germsCoated}</strong> antibody-coated bacteria
                 </span>
                 <span>
                   <strong>{snapshot.hostCellsSaved}</strong> cells saved
