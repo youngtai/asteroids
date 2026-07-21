@@ -1,5 +1,5 @@
 {
-  "name": "asteroids",
+  "name": "web-games",
   "version": "1.0.0",
   "private": true,
   "packageManager": "pnpm@10.25.0",
@@ -11,7 +11,7 @@
     "lint": "biome lint .",
     "preview": "vite preview --host 0.0.0.0",
     "pages:dev": "pnpm run build && WRANGLER_LOG_PATH=.wrangler/logs wrangler pages dev dist",
-    "deploy": "pnpm run build && WRANGLER_LOG_PATH=.wrangler/logs wrangler pages deploy dist --project-name asteroids --branch main"
+    "deploy": "pnpm run build && WRANGLER_LOG_PATH=.wrangler/logs wrangler pages deploy dist --project-name web-games --branch main"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",
