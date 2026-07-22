@@ -10,17 +10,6 @@ function blackHoleStrength() {
   return 1 + roundDifficultyTier() * BLACK_HOLE_ROUND_STRENGTH;
 }
 
-function blackHoleMassToRadius(baseRadius, mass, maxRadius) {
-  return Math.min(maxRadius, baseRadius * Math.sqrt(Math.max(1, mass)));
-}
-
-function updateBlackHoleSize(bh) {
-  const mass = bh.mass || 1;
-  bh.r = blackHoleMassToRadius(BLACK_HOLE_RADIUS, mass, BLACK_HOLE_MAX_EVENT_RADIUS * 0.45);
-  bh.eventR = blackHoleMassToRadius(BLACK_HOLE_EVENT_RADIUS, mass, BLACK_HOLE_MAX_EVENT_RADIUS);
-  bh.gravityR = blackHoleMassToRadius(BLACK_HOLE_GRAVITY_RADIUS, mass, BLACK_HOLE_MAX_GRAVITY_RADIUS);
-}
-
 function blackHoleVector(bh, obj) {
   let dx = bh.x - obj.x;
   let dy = bh.y - obj.y;
@@ -172,7 +161,6 @@ function mergeBlackHolePair(absorber, absorbed) {
   absorber.vx = (absorber.vx * aMass + absorbed.vx * bMass) / totalMass;
   absorber.vy = (absorber.vy * aMass + absorbed.vy * bMass) / totalMass;
   absorber.mass = totalMass;
-  updateBlackHoleSize(absorber);
   absorber.strength = Math.max(absorber.strength, absorbed.strength) + absorbed.strength * BLACK_HOLE_MERGE_STRENGTH_GAIN;
   absorber.spin = Math.abs(aMass * absorber.spin + bMass * absorbed.spin) < 0.1
     ? absorber.spin
@@ -235,11 +223,10 @@ function consumedBlackHoleMass(obj, type) {
   return 0.1;
 }
 
-function growBlackHoleFromConsumption(bh, obj, type) {
+function strengthenBlackHoleFromConsumption(bh, obj, type) {
   if (!bh) return;
   const gainedMass = consumedBlackHoleMass(obj, type) * BLACK_HOLE_CONSUMED_MASS_SCALE;
   bh.mass = (bh.mass || 1) + gainedMass;
-  updateBlackHoleSize(bh);
   bh.strength += gainedMass * BLACK_HOLE_CONSUME_STRENGTH_GAIN;
 }
 
@@ -258,7 +245,7 @@ function consumeBlackHoleObjects() {
     const bh = insideEventHorizon(s, 0.35);
     if (!bh) continue;
 
-    growBlackHoleFromConsumption(bh, s, 'ship');
+    strengthenBlackHoleFromConsumption(bh, s, 'ship');
     player.deaths++;
     playSound('shipHit');
     spawnExplosion(s.x, s.y, player.color || '#f44', true);
@@ -272,7 +259,7 @@ function consumeBlackHoleObjects() {
     const a = G.asteroids[i];
     const bh = insideEventHorizon(a, 0.25);
     if (bh) {
-      growBlackHoleFromConsumption(bh, a, 'asteroid');
+      strengthenBlackHoleFromConsumption(bh, a, 'asteroid');
       blackHoleConsumeEffect(a.x, a.y, a.isPowerup && a.puType ? POWERUPS[a.puType].color : '#aaa');
       G.asteroids.splice(i, 1);
     }
@@ -282,7 +269,7 @@ function consumeBlackHoleObjects() {
     const u = G.ufos[i];
     const bh = insideEventHorizon(u, 0.2);
     if (bh) {
-      growBlackHoleFromConsumption(bh, u, 'ufo');
+      strengthenBlackHoleFromConsumption(bh, u, 'ufo');
       if (u.isBoss) {
         destroyUfo(u, null, i);
       } else {
@@ -296,7 +283,7 @@ function consumeBlackHoleObjects() {
     const m = G.missiles[i];
     const bh = insideEventHorizon(m, 0.5);
     if (bh) {
-      growBlackHoleFromConsumption(bh, m, 'enemyMissile');
+      strengthenBlackHoleFromConsumption(bh, m, 'enemyMissile');
       blackHoleConsumeEffect(m.x, m.y, '#f84');
       G.missiles.splice(i, 1);
     }
@@ -306,7 +293,7 @@ function consumeBlackHoleObjects() {
     const m = G.playerMissiles[i];
     const bh = insideEventHorizon(m, 0.5);
     if (bh) {
-      growBlackHoleFromConsumption(bh, m, 'playerMissile');
+      strengthenBlackHoleFromConsumption(bh, m, 'playerMissile');
       blackHoleConsumeEffect(m.x, m.y, m.color || '#f44');
       G.playerMissiles.splice(i, 1);
     }
@@ -316,7 +303,7 @@ function consumeBlackHoleObjects() {
     const b = G.bullets[i];
     const bh = insideEventHorizon(b, 1.5);
     if (bh) {
-      growBlackHoleFromConsumption(bh, b, 'bullet');
+      strengthenBlackHoleFromConsumption(bh, b, 'bullet');
       blackHoleConsumeEffect(b.x, b.y, b.color || '#fff');
       G.bullets.splice(i, 1);
     }
@@ -326,7 +313,7 @@ function consumeBlackHoleObjects() {
     const pu = G.powerups[i];
     const bh = insideEventHorizon(pu, 1.0);
     if (bh) {
-      growBlackHoleFromConsumption(bh, pu, 'powerup');
+      strengthenBlackHoleFromConsumption(bh, pu, 'powerup');
       blackHoleConsumeEffect(pu.x, pu.y, POWERUPS[pu.type].color);
       G.powerups.splice(i, 1);
     }
